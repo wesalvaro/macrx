@@ -9,8 +9,18 @@ final class TabBarController {
 
     private var panels: [ObjectIdentifier: TabBarPanel] = [:]
 
-    /// The window IDs the tab bar panels belong to (for mouse hit-testing).
+    /// Tab bar frames (AX coordinates) per stack, for pointer hit-testing.
     private(set) var frames: [ObjectIdentifier: CGRect] = [:]
+
+    /// The window whose tab is under `p`, if `p` is inside a tab bar.
+    func tab(at p: CGPoint, tiles: [Tile]) -> (stack: ObjectIdentifier, window: WindowID)? {
+        for tile in tiles where tile.hasTabBar && tile.tabBar.contains(p) {
+            let w = tile.tabBar.width / CGFloat(tile.windows.count)
+            let i = min(Int((p.x - tile.tabBar.minX) / w), tile.windows.count - 1)
+            return (tile.stackID, tile.windows[max(0, i)])
+        }
+        return nil
+    }
 
     func sync(tiles: [Tile], focused: WindowID?, item: (WindowID) -> TabItem) {
         var seen: Set<ObjectIdentifier> = []

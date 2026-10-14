@@ -198,7 +198,21 @@ final class WindowManager {
             mouse.warp(to: f.center)
         } else {
             mouse.suppress()
+            bringConstrainedWindowToPointer(id)
         }
+    }
+
+    /// A size-constrained window can't fill its tile, so a pointer-driven focus (hovering its
+    /// tab) would otherwise leave the pointer over whatever is behind it. Move the window under
+    /// the pointer instead: top edge at the tile's content top, horizontally centred on the pointer.
+    private func bringConstrainedWindowToPointer(_ id: WindowID) {
+        guard let eff = effectiveFrames[id], let content = desiredFrames[id], let ax = axWindows[id] else { return }
+        let p = mouse.location
+        guard !eff.contains(p) else { return }
+        let x = min(max(p.x - eff.width / 2, content.minX), max(content.minX, content.maxX - eff.width))
+        let moved = CGRect(x: x, y: content.minY, width: eff.width, height: eff.height)
+        ax.setPosition(moved.origin)
+        effectiveFrames[id] = moved
     }
 
     private func focusDisplay(_ d: Display) {
@@ -217,9 +231,15 @@ final class WindowManager {
 
     private func pointerMoved(to p: CGPoint) {
         guard config.focusFollowsMouse else { return }
-        // Our tab bars are a control surface: hovering them (on the way to click a tab) must never
-        // change focus, even though some window may extend underneath the bar.
-        guard !tabBars.frames.values.contains(where: { $0.contains(p) }) else { return }
+        // Tab bars: hovering a tab switches to it. Never look through the bar at windows beneath.
+        if tabBars.frames.values.contains(where: { $0.contains(p) }) {
+            if let hit = tabBars.tab(at: p, tiles: tiles.map(\.tile)),
+               let tile = tiles.first(where: { $0.tile.stackID == hit.stack })?.tile,
+               hit.window != tile.top {
+                focus(hit.window, warp: false)
+            }
+            return
+        }
         // Respect the real z-order: a floating / dialog / unmanaged window over a tile wins.
         // Only actual window content counts — the desktop does nothing.
         guard let topmost = Self.topmostWindow(at: p), axWindows[topmost] != nil else { return }

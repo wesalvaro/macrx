@@ -68,28 +68,10 @@ final class TabBarView: NSView {
         CGRect(x: 0, y: bounds.height - 1, width: bounds.width, height: 1).fill()
     }
 
-    private var trackingArea: NSTrackingArea?
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let trackingArea { removeTrackingArea(trackingArea) }
-        let ta = NSTrackingArea(rect: bounds, options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self, userInfo: nil)
-        addTrackingArea(ta)
-        trackingArea = ta
-    }
-
     private func tab(at locationInWindow: NSPoint) -> WindowID? {
         let p = convert(locationInWindow, from: nil)
         return items.indices.first { tabRect($0).contains(p) }.map { items[$0].id }
     }
-
-    /// Hovering a tab switches to it (tabs follow the mouse like windows do).
-    override func mouseMoved(with event: NSEvent) {
-        guard let id = tab(at: event.locationInWindow), id != topID else { return }
-        onTabClicked?(id)
-    }
-
-    override func mouseEntered(with event: NSEvent) { mouseMoved(with: event) }
 
     override func mouseDown(with event: NSEvent) {
         if let id = tab(at: event.locationInWindow) { onTabClicked?(id) }
@@ -110,7 +92,6 @@ final class TabBarPanel: NSPanel {
         isMovableByWindowBackground = false
         isReleasedWhenClosed = false
         backgroundColor = .windowBackgroundColor
-        acceptsMouseMovedEvents = true
         contentView = tabView
     }
 

@@ -79,7 +79,8 @@ alt-shift-j = "move left"
 # ...
 
 [[rule]]
-app-id = "com.apple.systempreferences"
+app-id = "com.apple.finder"
+title-regex = "^(Copy|Move|Trash)"
 float = true
 ```
 

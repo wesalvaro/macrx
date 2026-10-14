@@ -228,9 +228,6 @@ public struct Config: Equatable, Sendable {
     alt-shift-r = "reload"
     alt-shift-q = "quit"
 
-    [[rule]]
-    app-id = "com.apple.systempreferences"
-    float = true
 
     [[rule]]
     app-id = "com.apple.finder"

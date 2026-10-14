@@ -190,9 +190,11 @@ final class WindowManager {
 
     private func pointerMoved(to p: CGPoint) {
         guard config.focusFollowsMouse else { return }
+        // Our tab bars are a control surface: hovering them (on the way to click a tab) must never
+        // change focus, even though some window may extend underneath the bar.
+        guard !tabBars.frames.values.contains(where: { $0.contains(p) }) else { return }
         // Respect the real z-order: a floating / dialog / unmanaged window over a tile wins.
-        // Only actual window content counts — hovering our tab bars or the desktop does nothing,
-        // so moving towards a tab never yanks focus away from (and raises a tile over) a floating window.
+        // Only actual window content counts — the desktop does nothing.
         guard let topmost = Self.topmostWindow(at: p), axWindows[topmost] != nil else { return }
         // Parked windows (hidden stack members / other workspaces) only show a sliver; never hover-focus them.
         guard !parked.contains(topmost) else { return }

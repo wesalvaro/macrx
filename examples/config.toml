@@ -63,9 +63,6 @@ alt-e = "toggle-orientation"
 alt-shift-r = "reload"
 alt-shift-q = "quit"
 
-[[rule]]
-app-id = "com.apple.systempreferences"
-float = true
 
 [[rule]]
 app-id = "com.apple.finder"

@@ -12,7 +12,7 @@ final class MouseController {
     private var monitor: Any?
     private var suppressUntil = Date.distantPast
     private var lastHandled = Date.distantPast
-    private let throttle: TimeInterval = 0.05
+    private let throttle: TimeInterval = 0.08
     private let suppression: TimeInterval = 0.3
 
     func startFollowing() {

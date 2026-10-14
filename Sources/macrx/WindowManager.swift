@@ -173,9 +173,34 @@ final class WindowManager {
 
     private func pointerMoved(to p: CGPoint) {
         guard config.focusFollowsMouse else { return }
+        // Respect the real z-order: a floating / dialog / unmanaged window over a tile wins.
+        if let topmost = Self.topmostWindow(at: p) {
+            guard axWindows[topmost] != nil else { return }  // unmanaged window: don't steal focus
+            if topmost != model.focused { focus(topmost, warp: false) }
+            return
+        }
+        // Nothing at the normal window layer (e.g. the pointer is over our tab bar or the desktop).
         guard let hit = tiles.first(where: { $0.tile.frame.contains(p) }) else { return }
         let target = hit.tile.top
         if target != model.focused { focus(target, warp: false) }
+    }
+
+    /// The frontmost normal-layer on-screen window containing `p` (CG/AX coordinates).
+    private static func topmostWindow(at p: CGPoint) -> WindowID? {
+        guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+            as? [[String: Any]] else { return nil }
+        for info in list {
+            guard (info[kCGWindowLayer as String] as? Int) == 0,
+                  let pid = info[kCGWindowOwnerPID as String] as? Int32,
+                  let num = info[kCGWindowNumber as String] as? UInt32,
+                  let b = info[kCGWindowBounds as String] as? [String: CGFloat],
+                  let x = b["X"], let y = b["Y"], let w = b["Width"], let h = b["Height"]
+            else { continue }
+            if CGRect(x: x, y: y, width: w, height: h).contains(p) {
+                return WindowID(pid: pid, cgID: num)
+            }
+        }
+        return nil
     }
 
     // MARK: - Commands

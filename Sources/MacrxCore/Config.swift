@@ -218,8 +218,8 @@ public struct Config: Equatable, Sendable {
     alt-j = "focus left"
     alt-k = "focus down"
     alt-l = "focus right"
-    alt-leftsquarebracket = "stack prev"
-    alt-rightsquarebracket = "stack next"
+    alt-u = "stack prev"
+    alt-o = "stack next"
 
     # Move (pass-through: leaves a stack, joins a neighbor, or crosses displays)
     alt-shift-i = "move up"

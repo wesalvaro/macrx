@@ -12,7 +12,8 @@ import Foundation
         let r1 = cfg.bindings[KeyCombo(string: "alt-shift-l")!]
         #expect(r1 == .move(.right))
         #expect(cfg.bindings[KeyCombo(string: "alt-3")!] == .workspace(3))
-        #expect(cfg.bindings[KeyCombo(string: "alt-leftsquarebracket")!] == .stack(-1))
+        #expect(cfg.bindings[KeyCombo(string: "alt-u")!] == .stack(-1))
+        #expect(cfg.bindings[KeyCombo(string: "alt-o")!] == .stack(1))
         #expect(cfg.rules.count == 2)
         #expect(cfg.rules[1].clickToFocus)
                         #expect(cfg.rules[0].matches(appID: "com.apple.finder", title: "Copy 3 items"))

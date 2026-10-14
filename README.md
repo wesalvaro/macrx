@@ -43,7 +43,7 @@ Command Line Tools ship but SwiftPM needs a few flags to find — see the Makefi
 | `⌥ i/k/j/l` | focus up/down/left/right |
 | `⌥⇧ i/k/j/l` | move window (see below) |
 | `⌥⌃ i/k/j/l` | resize up/down/left/right |
-| `⌥ [` / `⌥ ]` | previous/next window in stack |
+| `⌥ u` / `⌥ o` | previous/next window in stack |
 | `⌥⇧ ← ↓ ↑ →` | move window to the display in that direction |
 | `⌥⌃ ← ↓ ↑ →` | move the whole workspace to that display (swapping with what it shows) |
 | `⌥ 1…9` | focus workspace |

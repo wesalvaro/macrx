@@ -30,6 +30,9 @@ struct AXApp {
     }
 
     func activate() {
+        // Since macOS 14, `NSRunningApplication.activate()` from a background process is
+        // mostly ignored. Setting the AX frontmost attribute is honored for trusted processes.
+        _ = element.setAttribute(kAXFrontmostAttribute, kCFBooleanTrue)
         runningApp.activate()
     }
 }

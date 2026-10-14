@@ -113,6 +113,11 @@ final class WindowManager {
     /// The system says `id` is focused (click, ⌘-Tab, app activation…). Fold it into the model.
     private func externalFocus(_ id: WindowID) {
         guard axWindows[id] != nil, model.focused != id, let ws = model.workspace(containing: id) else { return }
+        // AX focus notifications echo our own raise/activate calls, sometimes late. Only trust
+        // a report that matches reality: the app is frontmost and this is its focused window.
+        guard NSWorkspace.shared.frontmostApplication?.processIdentifier == id.pid,
+              watcher.app(for: id.pid)?.focusedWindow?.id == id else { return }
+        log("external focus \(id)")
         if !model.isVisible(ws.id) { model.focusWorkspace(ws.id) }
         model.setFocused(id)
         model.update(ws.id) { $0.tree.makeTop(id) }
@@ -206,6 +211,7 @@ final class WindowManager {
     // MARK: - Commands
 
     func perform(_ cmd: Command) {
+        log("cmd \(cmd) focused=\(model.focused.map(String.init(describing:)) ?? "nil")")
         switch cmd {
         case .focus(let dir): focusNeighbor(dir)
         case .move(let dir): moveFocused(dir)

@@ -194,23 +194,38 @@ final class WindowManager {
             }
         }
 
-        if warp && config.mouseFollowsFocus, let f = currentFrame(of: id) {
+        if effectiveFrames[id] != nil {
+            bringConstrainedWindowToPointer(id, mayWarp: warp && config.mouseFollowsFocus)
+        } else if warp && config.mouseFollowsFocus, let f = currentFrame(of: id) {
             mouse.warp(to: f.center)
         } else {
             mouse.suppress()
-            bringConstrainedWindowToPointer(id)
         }
     }
 
-    /// A size-constrained window can't fill its tile, so a pointer-driven focus (hovering its
-    /// tab) would otherwise leave the pointer over whatever is behind it. Move the window under
-    /// the pointer instead: top edge at the tile's content top, horizontally centred on the pointer.
-    private func bringConstrainedWindowToPointer(_ id: WindowID) {
+    /// A size-constrained window can't fill its tile, so focusing it would otherwise leave the
+    /// pointer over whatever is behind it. Bring the window to the pointer instead: centred on it,
+    /// clamped to the tile (so from the tab bar it hugs the top edge). For keyboard focus
+    /// (`mayWarp`), a pointer outside the tile is first warped to the tile's centre.
+    private func bringConstrainedWindowToPointer(_ id: WindowID, mayWarp: Bool) {
         guard let eff = effectiveFrames[id], let content = desiredFrames[id], let ax = axWindows[id] else { return }
-        let p = mouse.location
+        var p = mouse.location
+        if !content.contains(p) {
+            if mayWarp {
+                p = content.center
+                mouse.warp(to: p)
+            } else {
+                // e.g. hovering the tab bar: aim at the nearest point inside the tile.
+                mouse.suppress()
+                p = CGPoint(x: min(max(p.x, content.minX), content.maxX), y: min(max(p.y, content.minY), content.maxY))
+            }
+        } else {
+            mouse.suppress()
+        }
         guard !eff.contains(p) else { return }
         let x = min(max(p.x - eff.width / 2, content.minX), max(content.minX, content.maxX - eff.width))
-        let moved = CGRect(x: x, y: content.minY, width: eff.width, height: eff.height)
+        let y = min(max(p.y - eff.height / 2, content.minY), max(content.minY, content.maxY - eff.height))
+        let moved = CGRect(x: x, y: y, width: eff.width, height: eff.height)
         ax.setPosition(moved.origin)
         effectiveFrames[id] = moved
     }

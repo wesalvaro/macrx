@@ -108,4 +108,11 @@ struct AXWindow: Hashable {
     func unminimize() {
         _ = element.setAttribute(kAXMinimizedAttribute, kCFBooleanFalse)
     }
+
+    /// Presses the window's standard close button (`kAXCloseButtonAttribute`).
+    @discardableResult
+    func close() -> Bool {
+        guard let btn: AXUIElement = element.attribute(kAXCloseButtonAttribute) else { return false }
+        return AXUIElementPerformAction(btn, kAXPressAction as CFString) == .success
+    }
 }

@@ -189,6 +189,40 @@ import Foundation
         #expect(t.root!.orientation == .vertical)
         #expect(t.root!.children[1].windows == [w(4)])
     }
+
+    @Test func ReorderInStackPreservesTopWindow() {
+        var t = Tree(root: Node(stack: [w(1), w(2), w(3)], top: 1))
+        let ok = t.reorder(w(3), to: 0)
+        #expect(ok)
+        #expect(t.root!.windows == [w(3), w(1), w(2)])
+        #expect(t.root!.topWindow == w(2))
+        let noop = t.reorder(w(3), to: 0)
+        #expect(!noop)
+    }
+
+    @Test func MoveToStackAndSplitTile() {
+        let s1 = Node(stack: [w(1), w(2)], top: 0)
+        let s2 = Node(stack: [w(3)], top: 0)
+        var t = Tree(root: Node(split: .horizontal, children: [s1, s2]))
+        t.normalize()
+
+        // Join w2 into s2 at index 0.
+        let joined = t.move(w(2), toStack: s2.id, at: 0)
+        #expect(joined)
+        #expect(s1.windows == [w(1)])
+        #expect(s2.windows == [w(2), w(3)])
+        #expect(s2.topWindow == w(2))
+
+        // Split s2 along .down with w3 → right column becomes vertical split [w2] / [w3].
+        let split = t.move(w(3), splitting: s2.id, edge: .down)
+        #expect(split)
+        #expect(t.root!.orientation == .horizontal)
+        #expect(t.root!.children[0].windows == [w(1)])
+        let rightCol = t.root!.children[1]
+        #expect(rightCol.orientation == .vertical)
+        #expect(rightCol.children[0].windows == [w(2)])
+        #expect(rightCol.children[1].windows == [w(3)])
+    }
 }
 
 @Suite struct ResizeEdgeTests {

@@ -34,6 +34,8 @@ final class WindowManager {
     private var previousWorkspaceID: Int?
     /// Tiled windows the user is currently drag-resizing (applied on mouse-up).
     private var userResizing: Set<WindowID> = []
+    /// `true` while the user is dragging a tab in a tab bar.
+    private var isDraggingTab = false
 
     var onQuit: (() -> Void)?
     var onReload: (() -> Void)?
@@ -52,6 +54,10 @@ final class WindowManager {
         mouse.onMouseUp = { [weak self] in self?.finishUserResize() }
         mouse.startDragTracking()
         tabBars.onTabClicked = { [weak self] w in self?.focus(w, warp: false) }
+        tabBars.onTabClosed = { [weak self] w in self?.closeWindow(w) }
+        tabBars.menuForTab = { [weak self] w in self?.buildTabMenu(for: w) }
+        tabBars.onDragUpdated = { [weak self] w, p in self?.tabDragUpdated(w, at: p) }
+        tabBars.onDragEnded = { [weak self] w, p in self?.tabDragEnded(w, at: p) }
         statusBar.onSelectWorkspace = { [weak self] n in self?.perform(.workspace(n)) }
         statusBar.onReload = { [weak self] in self?.onReload?() }
         statusBar.onQuit = { [weak self] in self?.onQuit?() }
@@ -279,12 +285,13 @@ final class WindowManager {
     }
 
     private func pointerMoved(to p: CGPoint) {
-        guard config.focusFollowsMouse else { return }
-        // Tab bars: hovering a tab switches to it. Never look through the bar at windows beneath.
+        guard !isDraggingTab, config.focusFollowsMouse else { return }
+        // Tab bars: hovering a tab switches to it (unless hovering its × close button).
+        // Never look through the bar at windows beneath.
         if tabBars.frames.values.contains(where: { $0.contains(p) }) {
             let hit = tabBars.tab(at: p)
-            tabBars.setHovered(hit?.window)
-            if config.tabBar.switchOn == .hover, let hit,
+            tabBars.setHovered(hit?.window, closeHovered: hit?.onClose ?? false)
+            if config.tabBar.switchOn == .hover, let hit, !hit.onClose,
                let tile = tiles.first(where: { $0.tile.stackID == hit.stack })?.tile,
                hit.window != tile.top {
                 focus(hit.window, warp: false)
@@ -411,7 +418,12 @@ final class WindowManager {
     }
 
     private func moveFocused(_ dir: Direction) {
-        guard let w = model.focused, let ws = model.workspace(containing: w), !ws.floating.contains(w),
+        guard let w = model.focused else { return }
+        moveWindow(w, dir, warp: true)
+    }
+
+    private func moveWindow(_ w: WindowID, _ dir: Direction, warp: Bool) {
+        guard let ws = model.workspace(containing: w), !ws.floating.contains(w),
               let display = model.display(ws.displayID) else { return }
         var result = MoveResult.noop
         model.update(ws.id) { result = $0.tree.move(w, dir, in: display.frame) }
@@ -422,7 +434,135 @@ final class WindowManager {
         case .noop: return
         }
         applyLayout()
-        focus(w)
+        focus(w, warp: warp)
+    }
+
+    // MARK: - Tab bar controls (close, drag, context menu)
+
+    private func closeWindow(_ id: WindowID) {
+        guard let ax = axWindows[id] else { return }
+        log("close tab \(id)")
+        _ = ax.close()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) { [weak self] in
+            guard let self, let ax = self.axWindows[id] else { return }
+            if !ax.isAlive || ax.frame == nil {
+                self.windowDestroyed(id)
+            }
+        }
+    }
+
+    private func tabDragUpdated(_ w: WindowID, at p: CGPoint) {
+        isDraggingTab = true
+        guard let ws = model.workspace(containing: w),
+              let srcStack = ws.tree.stack(containing: w)?.id else {
+            tabBars.showDropPreview(nil)
+            return
+        }
+        let visibleTiles = tiles.map(\.tile)
+        switch TabLayout.dropTarget(at: p, draggedWindow: w, sourceStack: srcStack, tiles: visibleTiles, tabRects: tabBars.tabRects) {
+        case .reorder(let idx):
+            tabBars.showDropPreview(nil)
+            var reordered = false
+            model.update(ws.id) { reordered = $0.tree.reorder(w, to: idx) }
+            if reordered { applyLayout() }
+        case .joinStack(_, _, let preview), .splitTile(_, _, let preview):
+            tabBars.showDropPreview(preview)
+        case nil:
+            if let d = displays.display(containing: p), tiles.allSatisfy({ $0.display != d.id }) {
+                tabBars.showDropPreview(d.frame)
+            } else {
+                tabBars.showDropPreview(nil)
+            }
+        }
+    }
+
+    private func tabDragEnded(_ w: WindowID, at p: CGPoint) {
+        isDraggingTab = false
+        tabBars.showDropPreview(nil)
+        guard let srcWS = model.workspace(containing: w),
+              let srcStack = srcWS.tree.stack(containing: w)?.id else { return }
+        let visibleTiles = tiles.map(\.tile)
+        switch TabLayout.dropTarget(at: p, draggedWindow: w, sourceStack: srcStack, tiles: visibleTiles, tabRects: tabBars.tabRects) {
+        case .reorder(let idx):
+            model.update(srcWS.id) { _ = $0.tree.reorder(w, to: idx) }
+            applyLayout()
+            focus(w, warp: false)
+        case .joinStack(let dstStack, let index, _):
+            guard let dstDisplay = tiles.first(where: { $0.tile.stackID == dstStack })?.display,
+                  let dstWS = model.visibleWorkspace(on: dstDisplay)?.id else { return }
+            if dstWS != srcWS.id { _ = model.moveWindow(w, toWorkspace: dstWS) }
+            model.update(dstWS) { _ = $0.tree.move(w, toStack: dstStack, at: index) }
+            applyLayout()
+            focus(w, warp: false)
+        case .splitTile(let dstStack, let edge, _):
+            guard let dstDisplay = tiles.first(where: { $0.tile.stackID == dstStack })?.display,
+                  let dstWS = model.visibleWorkspace(on: dstDisplay)?.id else { return }
+            if dstWS != srcWS.id { _ = model.moveWindow(w, toWorkspace: dstWS) }
+            model.update(dstWS) { _ = $0.tree.move(w, splitting: dstStack, edge: edge) }
+            applyLayout()
+            focus(w, warp: false)
+        case nil:
+            if let d = displays.display(containing: p),
+               tiles.allSatisfy({ $0.display != d.id }),
+               let dstWS = model.visibleWorkspace(on: d.id)?.id,
+               dstWS != srcWS.id {
+                _ = model.moveWindow(w, toWorkspace: dstWS)
+                applyLayout()
+                focus(w, warp: false)
+            }
+        }
+    }
+
+    private func buildTabMenu(for w: WindowID) -> NSMenu {
+        let menu = NSMenu()
+        menu.addItem(.action("Move Left") { [weak self] in self?.moveWindow(w, .left, warp: false) })
+        menu.addItem(.action("Move Right") { [weak self] in self?.moveWindow(w, .right, warp: false) })
+        menu.addItem(.action("Move Up") { [weak self] in self?.moveWindow(w, .up, warp: false) })
+        menu.addItem(.action("Move Down") { [weak self] in self?.moveWindow(w, .down, warp: false) })
+        if model.displays.count > 1 {
+            menu.addItem(.action("Move to Other Display") { [weak self] in
+                guard let self else { return }
+                let moved = self.model.moveWindow(w, toDisplay: .right) || self.model.moveWindow(w, toDisplay: .left)
+                    || self.model.moveWindow(w, toDisplay: .down) || self.model.moveWindow(w, toDisplay: .up)
+                guard moved else { return }
+                self.applyLayout()
+                self.focus(w, warp: false)
+            })
+        }
+        menu.addItem(.separator())
+
+        let wsSub = NSMenu()
+        let currentWS = model.workspace(containing: w)?.id
+        for n in 1...9 {
+            let count = model.workspace(n)?.allWindows.count ?? 0
+            let label = count > 0 ? "Workspace \(n)  (\(count))" : "Workspace \(n)"
+            let item = NSMenuItem.action(label) { [weak self] in
+                guard let self else { return }
+                let wasFocused = self.model.focused == w
+                let replacement = self.model.moveWindow(w, toWorkspace: n)
+                self.applyLayout()
+                if wasFocused, let replacement { self.focus(replacement, warp: false) }
+            }
+            if n == currentWS {
+                item.state = .on
+                item.isEnabled = false
+            }
+            wsSub.addItem(item)
+        }
+        let wsItem = NSMenuItem(title: "Move to Workspace", action: nil, keyEquivalent: "")
+        wsItem.submenu = wsSub
+        menu.addItem(wsItem)
+
+        menu.addItem(.action("Float Window") { [weak self] in
+            guard let self else { return }
+            self.model.toggleFloating(w)
+            self.lastApplied[w] = nil
+            self.applyLayout()
+            self.focus(w, warp: false)
+        })
+        menu.addItem(.separator())
+        menu.addItem(.action("Close") { [weak self] in self?.closeWindow(w) })
+        return menu
     }
 
     // MARK: - Layout
@@ -631,5 +771,23 @@ final class WindowManager {
 
     private func log(_ s: String) {
         FileHandle.standardError.write(("[macrx] " + s + "\n").data(using: .utf8)!)
+    }
+}
+
+@MainActor
+private final class ClosureMenuTarget: NSObject {
+    let handler: () -> Void
+    init(_ handler: @escaping () -> Void) { self.handler = handler }
+    @objc func invoke() { handler() }
+}
+
+extension NSMenuItem {
+    @MainActor
+    static func action(_ title: String, _ handler: @escaping () -> Void) -> NSMenuItem {
+        let target = ClosureMenuTarget(handler)
+        let item = NSMenuItem(title: title, action: #selector(ClosureMenuTarget.invoke), keyEquivalent: "")
+        item.target = target
+        item.representedObject = target
+        return item
     }
 }

@@ -79,6 +79,73 @@ extension Tree {
         stack(containing: w)?.makeTop(w)
     }
 
+    /// Reorders `w` to `newIndex` within its own stack, preserving the current `topWindow`.
+    @discardableResult
+    public mutating func reorder(_ w: WindowID, to newIndex: Int) -> Bool {
+        guard let s = stack(containing: w), let oldIndex = s.windows.firstIndex(of: w) else { return false }
+        let clamped = min(max(0, newIndex), s.windows.count - 1)
+        guard clamped != oldIndex else { return false }
+        let currentTop = s.topWindow
+        s.windows.remove(at: oldIndex)
+        s.windows.insert(w, at: clamped)
+        if let currentTop, let topIdx = s.windows.firstIndex(of: currentTop) {
+            s.top = topIdx
+        }
+        return true
+    }
+
+    /// Moves `w` into the stack with `targetID` (at `index`, or right after its current top)
+    /// and makes `w` the top of that stack. If `w` is already in `targetID`, reorders it when `index` is given.
+    @discardableResult
+    public mutating func move(_ w: WindowID, toStack targetID: ObjectIdentifier, at index: Int? = nil) -> Bool {
+        guard allStacks.contains(where: { $0.id == targetID }) else { return false }
+        if let src = stack(containing: w), src.id == targetID {
+            if let index { return reorder(w, to: index) }
+            return false
+        }
+        remove(w)
+        guard let target = allStacks.first(where: { $0.id == targetID }) else { return false }
+        let idx = index.map { min(max(0, $0), target.windows.count) } ?? min(target.top + 1, target.windows.count)
+        target.windows.insert(w, at: idx)
+        target.top = idx
+        return true
+    }
+
+    /// Removes `w` from its current stack and splits the stack `targetID` along `edge`,
+    /// placing `w` in a new tile on the `edge` side of `targetID`.
+    @discardableResult
+    public mutating func move(_ w: WindowID, splitting targetID: ObjectIdentifier, edge: Direction) -> Bool {
+        guard let target = allStacks.first(where: { $0.id == targetID }) else { return false }
+        if target.windows == [w] { return false }
+        remove(w)
+        guard let liveTarget = allStacks.first(where: { $0.id == targetID }) else { return false }
+        let newStack = Node(stack: [w])
+        if let parent = liveTarget.parent, parent.orientation == edge.orientation, let idx = parent.index(of: liveTarget) {
+            let half = liveTarget.weight / 2
+            liveTarget.weight = half
+            newStack.weight = half
+            parent.insertChild(newStack, at: edge.isForward ? idx + 1 : idx)
+        } else {
+            let split = Node(split: edge.orientation)
+            if let parent = liveTarget.parent {
+                parent.replaceChild(liveTarget, with: split)
+            } else {
+                root = split
+            }
+            liveTarget.weight = 0.5
+            newStack.weight = 0.5
+            if edge.isForward {
+                split.appendChild(liveTarget)
+                split.appendChild(newStack)
+            } else {
+                split.appendChild(newStack)
+                split.appendChild(liveTarget)
+            }
+        }
+        normalize()
+        return true
+    }
+
     // MARK: Move (pass-through semantics)
 
     /// Moves `w` in `dir`:

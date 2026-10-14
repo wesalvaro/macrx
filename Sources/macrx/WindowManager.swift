@@ -186,10 +186,7 @@ final class WindowManager {
                 guard let self, self.model.focused == id else { return }
                 let front = NSWorkspace.shared.frontmostApplication?.processIdentifier
                 let key = app.focusedWindow?.id
-                guard front == id.pid, let key, key != id, let f = ax.frame else {
-                    self.log("click-to-focus check for \(id): front=\(front.map(String.init) ?? "nil") key=\(key.map(String.init(describing:)) ?? "nil")")
-                    return
-                }
+                guard front == id.pid, let key, key != id, let f = ax.frame else { return }
                 self.log("app kept \(key) as key window; clicking title bar of \(id)")
                 self.mouse.clickAndRestore(at: CGPoint(x: f.midX, y: f.minY + 8))
             }

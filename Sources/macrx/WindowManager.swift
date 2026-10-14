@@ -247,11 +247,16 @@ final class WindowManager {
             mouse.suppress()
         }
         guard !eff.contains(p) else { return }
-        let x = min(max(p.x - eff.width / 2, content.minX), max(content.minX, content.maxX - eff.width))
-        let y = min(max(p.y - eff.height / 2, content.minY), max(content.minY, content.maxY - eff.height))
-        let moved = CGRect(x: x, y: y, width: eff.width, height: eff.height)
+        let moved = Self.centered(size: eff.size, on: p, within: content)
         ax.setPosition(moved.origin)
         effectiveFrames[id] = moved
+    }
+
+    /// A rect of `size` centred on `p`, clamped to stay inside `bounds`.
+    private static func centered(size: CGSize, on p: CGPoint, within bounds: CGRect) -> CGRect {
+        let x = min(max(p.x - size.width / 2, bounds.minX), max(bounds.minX, bounds.maxX - size.width))
+        let y = min(max(p.y - size.height / 2, bounds.minY), max(bounds.minY, bounds.maxY - size.height))
+        return CGRect(origin: CGPoint(x: x, y: y), size: size)
     }
 
     private func focusDisplay(_ d: Display) {
@@ -502,7 +507,14 @@ final class WindowManager {
         guard let actual = ax.frame else { return rect }
         if abs(actual.width - rect.width) > 2 || abs(actual.height - rect.height) > 2 {
             let placed: CGRect
-            if let tab = tabAnchors[ax.id] {
+            if ax.id == model.focused {
+                // Focused: go straight to where `bringConstrainedWindowToPointer` would put it
+                // (centred on the pointer if it's in the tile, else the tile centre), so the
+                // window doesn't hop from under its tab to the pointer in two steps.
+                let p = mouse.location
+                let target = rect.contains(p) ? p : rect.center
+                placed = Self.centered(size: actual.size, on: target, within: rect)
+            } else if let tab = tabAnchors[ax.id] {
                 // In a tab group: sit directly below its tab (clamped to the tile), so moving the
                 // pointer down from the tab lands on this window rather than the one behind it.
                 let x = min(max(tab.midX - actual.width / 2, rect.minX), max(rect.minX, rect.maxX - actual.width))

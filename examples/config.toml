@@ -68,3 +68,8 @@ alt-shift-q = "quit"
 app-id = "com.apple.finder"
 title-regex = "^(Copy|Move|Trash)"
 float = true
+
+# kitty (GLFW) ignores every programmatic key-window switch; a title-bar click is the only way.
+[[rule]]
+app-id = "net.kovidgoyal.kitty"
+click-to-focus = true

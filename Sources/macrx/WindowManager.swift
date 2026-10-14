@@ -180,14 +180,19 @@ final class WindowManager {
             self.tabBars.bringToFront()
         }
         // Some apps (GLFW-based like kitty) ignore every programmatic key-window switch within
-        // the app. If the app still reports a different key window, click its title bar.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
-            guard let self, self.model.focused == id, let app = self.watcher.app(for: id.pid),
-                  NSWorkspace.shared.frontmostApplication?.processIdentifier == id.pid,
-                  let key = app.focusedWindow?.id, key != id,
-                  let f = ax.frame else { return }
-            self.log("app kept \(key) as key window; clicking title bar of \(id)")
-            self.mouse.clickAndRestore(at: CGPoint(x: f.midX, y: f.minY + 8))
+        // the app. For apps opted in via a `click-to-focus` rule, click the title bar if needed.
+        if let app = watcher.app(for: id.pid), rules.clickToFocus(bundleID: app.bundleID, title: titles[id] ?? "") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+                guard let self, self.model.focused == id else { return }
+                let front = NSWorkspace.shared.frontmostApplication?.processIdentifier
+                let key = app.focusedWindow?.id
+                guard front == id.pid, let key, key != id, let f = ax.frame else {
+                    self.log("click-to-focus check for \(id): front=\(front.map(String.init) ?? "nil") key=\(key.map(String.init(describing:)) ?? "nil")")
+                    return
+                }
+                self.log("app kept \(key) as key window; clicking title bar of \(id)")
+                self.mouse.clickAndRestore(at: CGPoint(x: f.midX, y: f.minY + 8))
+            }
         }
 
         if warp && config.mouseFollowsFocus, let f = currentFrame(of: id) {
@@ -396,8 +401,11 @@ final class WindowManager {
     /// Brings the top window of every visible multi-window stack to the front of its tile.
     /// (AX raise reorders among inactive apps' windows; the active app is always on top anyway.)
     private func raiseStackTops() {
-        for (tile, _) in tiles where tile.windows.count > 1 && tile.top != model.focused {
-            axWindows[tile.top]?.raise()
+        // Never touch windows of the active app: they are already above everything else, and
+        // raising one of them would move keyboard focus away from the focused window.
+        let activePid = model.focused?.pid
+        for (tile, _) in tiles where tile.windows.count > 1 && tile.top != model.focused && tile.top.pid != activePid {
+            axWindows[tile.top]?.orderFront()
         }
     }
 

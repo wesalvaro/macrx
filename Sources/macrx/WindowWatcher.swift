@@ -25,6 +25,9 @@ final class WindowWatcher {
     private var tokens: [NSObjectProtocol] = []
     private var reconcileTimer: Timer?
 
+    /// Tooltips, hover cards, popups etc. are `AXWindow`s too, but must never be managed.
+    private static let managedSubroles: Set<String> = [kAXStandardWindowSubrole, kAXDialogSubrole]
+
     private static let windowNotifications = [
         kAXUIElementDestroyedNotification,
         kAXTitleChangedNotification,
@@ -128,7 +131,8 @@ final class WindowWatcher {
     // MARK: Windows
 
     private func register(_ w: AXWindow, app: AXApp) {
-        guard windows[w.id] == nil, w.role == kAXWindowRole, !w.isMinimized else { return }
+        guard windows[w.id] == nil, w.role == kAXWindowRole, !w.isMinimized,
+              Self.managedSubroles.contains(w.subrole) else { return }
         windows[w.id] = w
         elementToID[w.element] = w.id
         if let obs = observers[app.pid] {

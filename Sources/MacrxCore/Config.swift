@@ -46,17 +46,21 @@ public struct Rule: Codable, Equatable, Sendable {
     public var float: Bool = false
     /// Window is left completely alone (no tiling, no focus tracking).
     public var ignore: Bool = false
+    /// The app ignores programmatic key-window changes; focus it by clicking its title bar.
+    public var clickToFocus: Bool = false
 
-    public init(appID: String? = nil, titleRegex: String? = nil, float: Bool = false, ignore: Bool = false) {
+    public init(appID: String? = nil, titleRegex: String? = nil, float: Bool = false, ignore: Bool = false, clickToFocus: Bool = false) {
         self.appID = appID
         self.titleRegex = titleRegex
         self.float = float
         self.ignore = ignore
+        self.clickToFocus = clickToFocus
     }
 
     enum CodingKeys: String, CodingKey {
         case appID = "app-id"
         case titleRegex = "title-regex"
+        case clickToFocus = "click-to-focus"
         case float, ignore
     }
 
@@ -66,6 +70,7 @@ public struct Rule: Codable, Equatable, Sendable {
         titleRegex = try c.decodeIfPresent(String.self, forKey: .titleRegex)
         float = try c.decodeIfPresent(Bool.self, forKey: .float) ?? false
         ignore = try c.decodeIfPresent(Bool.self, forKey: .ignore) ?? false
+        clickToFocus = try c.decodeIfPresent(Bool.self, forKey: .clickToFocus) ?? false
     }
 
     public func matches(appID: String?, title: String?) -> Bool {
@@ -233,6 +238,11 @@ public struct Config: Equatable, Sendable {
     app-id = "com.apple.finder"
     title-regex = "^(Copy|Move|Trash)"
     float = true
+
+    # kitty (GLFW) ignores every programmatic key-window switch; a title-bar click is the only way.
+    [[rule]]
+    app-id = "net.kovidgoyal.kitty"
+    click-to-focus = true
     """
 
     public static let `default`: Config = {

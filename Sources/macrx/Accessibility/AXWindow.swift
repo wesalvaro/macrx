@@ -91,12 +91,18 @@ struct AXWindow: Hashable {
 
     // MARK: Actions
 
+    /// Raise and make this the app's key window.
     func raise() {
         AXUIElementPerformAction(element, kAXRaiseAction as CFString)
         // Main + focused: needed for the app to switch its key window to this one
         // (raising alone only reorders).
         _ = element.setAttribute(kAXMainAttribute, kCFBooleanTrue)
         _ = element.setAttribute(kAXFocusedAttribute, kCFBooleanTrue)
+    }
+
+    /// Z-order only: bring to the front of its layer without touching key/main state.
+    func orderFront() {
+        AXUIElementPerformAction(element, kAXRaiseAction as CFString)
     }
 
     func unminimize() {

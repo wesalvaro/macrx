@@ -22,4 +22,8 @@ struct WindowRules {
         }
         return .tile
     }
+
+    func clickToFocus(bundleID: String?, title: String) -> Bool {
+        rules.contains { $0.clickToFocus && $0.matches(appID: bundleID, title: title) }
+    }
 }

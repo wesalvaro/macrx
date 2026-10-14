@@ -495,7 +495,11 @@ final class WindowManager {
     private func updateStatusBar() {
         guard statusBar.isShown else { return }
         let entries = model.displays.map { d -> StatusBar.DisplayEntry in
-            let wss = model.workspaces.values.filter { $0.displayID == d.id }.sorted { $0.id < $1.id }
+            let visible = model.visibleWorkspace(on: d.id)?.id
+            // Empty workspaces are noise in the menu; keep only populated ones (and the current one).
+            let wss = model.workspaces.values
+                .filter { $0.displayID == d.id && (!$0.isEmpty || $0.id == visible) }
+                .sorted { $0.id < $1.id }
             return StatusBar.DisplayEntry(
                 name: displays.names[d.id] ?? "Display",
                 visibleWorkspace: model.visibleWorkspace(on: d.id)?.id ?? 0,

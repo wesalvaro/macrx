@@ -1,0 +1,73 @@
+# macrx configuration — ~/.config/macrx/config.toml
+
+focus-follows-mouse = true
+mouse-follows-focus = true
+resize-step = 0.05
+
+[tab-bar]
+show = "multiple"        # multiple | always | never
+height = 26
+font-size = 12
+
+[binding]
+# Focus
+alt-h = "focus left"
+alt-j = "focus down"
+alt-k = "focus up"
+alt-l = "focus right"
+alt-leftsquarebracket = "stack prev"
+alt-rightsquarebracket = "stack next"
+
+# Move (pass-through: leaves a stack, joins a neighbor, or crosses displays)
+alt-shift-h = "move left"
+alt-shift-j = "move down"
+alt-shift-k = "move up"
+alt-shift-l = "move right"
+
+# Resize
+alt-ctrl-h = "resize left"
+alt-ctrl-j = "resize down"
+alt-ctrl-k = "resize up"
+alt-ctrl-l = "resize right"
+
+# Displays
+alt-shift-left = "move-to-display left"
+alt-shift-down = "move-to-display down"
+alt-shift-up = "move-to-display up"
+alt-shift-right = "move-to-display right"
+
+# Workspaces
+alt-1 = "workspace 1"
+alt-2 = "workspace 2"
+alt-3 = "workspace 3"
+alt-4 = "workspace 4"
+alt-5 = "workspace 5"
+alt-6 = "workspace 6"
+alt-7 = "workspace 7"
+alt-8 = "workspace 8"
+alt-9 = "workspace 9"
+alt-shift-1 = "move-to-workspace 1"
+alt-shift-2 = "move-to-workspace 2"
+alt-shift-3 = "move-to-workspace 3"
+alt-shift-4 = "move-to-workspace 4"
+alt-shift-5 = "move-to-workspace 5"
+alt-shift-6 = "move-to-workspace 6"
+alt-shift-7 = "move-to-workspace 7"
+alt-shift-8 = "move-to-workspace 8"
+alt-shift-9 = "move-to-workspace 9"
+
+# Misc
+alt-f = "fullscreen"
+alt-shift-space = "float"
+alt-e = "toggle-orientation"
+alt-shift-r = "reload"
+alt-shift-q = "quit"
+
+[[rule]]
+app-id = "com.apple.systempreferences"
+float = true
+
+[[rule]]
+app-id = "com.apple.finder"
+title-regex = "^(Copy|Move|Trash)"
+float = true

@@ -162,10 +162,11 @@ public struct WorkspaceModel {
 
     // MARK: Windows
 
-    /// Adds a window to the focused workspace, stacked on the focused window.
-    public mutating func add(_ w: WindowID, floating: Bool = false) {
+    /// Adds a window to the workspace visible on `display` (default: the focused display),
+    /// stacked on that workspace's focused window.
+    public mutating func add(_ w: WindowID, floating: Bool = false, on display: DisplayID? = nil) {
         guard workspace(containing: w) == nil else { return }
-        guard let d = focusedDisplay ?? primaryDisplay?.id, let wsID = visible[d] else { return }
+        guard let d = display ?? focusedDisplay ?? primaryDisplay?.id, let wsID = visible[d] else { return }
         if floating {
             workspaces[wsID]!.floating.insert(w)
         } else {

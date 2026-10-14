@@ -346,12 +346,20 @@ final class WindowManager {
             focus(w)
         case .workspace(let n):
             let before = model.focusedWorkspace?.id
+            let pointerDisplay = displays.display(containing: mouse.location)?.id
             let target = model.focusWorkspace(n)
             guard before != n || target != model.focused else { return }
             applyLayout()
-            if let target { focus(target) } else if let d = model.focusedDisplay.flatMap(model.display) {
+            // Don't yank the pointer around on a workspace switch; only move it when the
+            // workspace lives on a different display (otherwise focus-follows-mouse would
+            // immediately pull focus back to the display the pointer is on).
+            let crossesDisplay = model.focusedDisplay != pointerDisplay
+            if let target {
+                focus(target, warp: crossesDisplay)
+            } else if crossesDisplay, config.mouseFollowsFocus, let d = model.focusedDisplay.flatMap(model.display) {
+                mouse.warp(to: d.frame.center)
+            } else {
                 mouse.suppress()
-                if config.mouseFollowsFocus { mouse.warp(to: d.frame.center) }
             }
         case .moveToWorkspace(let n):
             guard let w = model.focused else { return }

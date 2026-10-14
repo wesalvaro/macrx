@@ -45,8 +45,30 @@ final class MouseController {
 
     private func pointerMoved() {
         let now = Date()
-        guard now >= suppressUntil, now.timeIntervalSince(lastHandled) >= throttle else { return }
+        if now < suppressUntil {
+            // Re-evaluate once the suppression window closes, in case the pointer came to rest
+            // over a different window while we were ignoring motion.
+            scheduleRecheck(after: suppressUntil.timeIntervalSince(now) + 0.01)
+            return
+        }
+        guard now.timeIntervalSince(lastHandled) >= throttle else {
+            scheduleRecheck(after: throttle)
+            return
+        }
         lastHandled = now
         onPointerMoved?(location)
+    }
+
+    private var recheck: DispatchWorkItem?
+
+    private func scheduleRecheck(after delay: TimeInterval) {
+        guard recheck == nil else { return }
+        let item = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.recheck = nil
+            self.pointerMoved()
+        }
+        recheck = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: item)
     }
 }

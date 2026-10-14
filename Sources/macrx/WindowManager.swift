@@ -114,12 +114,20 @@ final class WindowManager {
     }
 
     /// The system says `id` is focused (click, ⌘-Tab, app activation…). Fold it into the model.
-    private func externalFocus(_ id: WindowID) {
+    private func externalFocus(_ id: WindowID, verified: Bool = false) {
         guard axWindows[id] != nil, model.focused != id, let ws = model.workspace(containing: id) else { return }
         // AX focus notifications echo our own raise/activate calls, sometimes late. Only trust
         // a report that matches reality: the app is frontmost and this is its focused window.
+        // NSWorkspace's notion of "frontmost" lags the notification, so check on the next tick.
+        guard verified else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in self?.externalFocus(id, verified: true) }
+            return
+        }
         guard NSWorkspace.shared.frontmostApplication?.processIdentifier == id.pid,
-              watcher.app(for: id.pid)?.focusedWindow?.id == id else { return }
+              watcher.app(for: id.pid)?.focusedWindow?.id == id else {
+            log("ignored stale focus report \(id)")
+            return
+        }
         log("external focus \(id)")
         if !model.isVisible(ws.id) { model.focusWorkspace(ws.id) }
         model.setFocused(id)
@@ -144,6 +152,7 @@ final class WindowManager {
 
     func focus(_ id: WindowID, warp: Bool = true) {
         guard let ax = axWindows[id], let ws = model.workspace(containing: id) else { return }
+        log("focus \(id) '\(titles[id] ?? "")' warp=\(warp)")
         if !model.isVisible(ws.id) { model.focusWorkspace(ws.id) }
         model.setFocused(id)
         model.update(ws.id) { $0.tree.makeTop(id) }
@@ -185,7 +194,12 @@ final class WindowManager {
         // Only actual window content counts — hovering our tab bars or the desktop does nothing,
         // so moving towards a tab never yanks focus away from (and raises a tile over) a floating window.
         guard let topmost = Self.topmostWindow(at: p), axWindows[topmost] != nil else { return }
-        if topmost != model.focused { focus(topmost, warp: false) }
+        // Parked windows (hidden stack members / other workspaces) only show a sliver; never hover-focus them.
+        guard !parked.contains(topmost) else { return }
+        if topmost != model.focused {
+            log("hover \(p) → \(topmost)")
+            focus(topmost, warp: false)
+        }
     }
 
     /// The frontmost normal-layer on-screen window containing `p` (CG/AX coordinates).

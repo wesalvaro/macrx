@@ -164,6 +164,7 @@ final class WindowManager {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
             guard let self, self.model.focused == id else { return }
             ax.raise()
+            self.raiseStackTops()
             self.tabBars.bringToFront()
         }
 
@@ -318,6 +319,7 @@ final class WindowManager {
         var newTiles: [(tile: Tile, display: DisplayID)] = []
         var fullscreenDisplays: Set<DisplayID> = []
 
+        let activePid = model.focused?.pid
         for display in model.displays {
             for ws in model.workspaces.values where ws.displayID == display.id {
                 let visible = model.isVisible(ws.id)
@@ -328,7 +330,16 @@ final class WindowManager {
                 let ts = LayoutEngine.tiles(ws.tree, in: display.frame, tabBarHeight: tabBarHeight)
                 for t in ts {
                     desired[t.top] = t.content
-                    for w in t.windows where w != t.top { toPark.insert(w) }
+                    for w in t.windows where w != t.top {
+                        // Stack members stay in place; only z-order distinguishes the top.
+                        // Exception: macOS keeps *all* windows of the active app above everything
+                        // else, so an active-app window behind another app's top would cover it.
+                        if w.pid == activePid && t.top.pid != activePid {
+                            toPark.insert(w)
+                        } else {
+                            desired[w] = t.content
+                        }
+                    }
                     newTiles.append((t, display.id))
                 }
                 if let fs = ws.fullscreen, ws.contains(fs) {
@@ -357,6 +368,15 @@ final class WindowManager {
         }
 
         syncTabBars(excluding: fullscreenDisplays)
+        raiseStackTops()
+    }
+
+    /// Brings the top window of every visible multi-window stack to the front of its tile.
+    /// (AX raise reorders among inactive apps' windows; the active app is always on top anyway.)
+    private func raiseStackTops() {
+        for (tile, _) in tiles where tile.windows.count > 1 && tile.top != model.focused {
+            axWindows[tile.top]?.raise()
+        }
     }
 
     private func syncTabBars(excluding fullscreenDisplays: Set<DisplayID> = []) {

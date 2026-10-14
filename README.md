@@ -101,9 +101,13 @@ tiled too and sit centred in their tile.
 
 ## Known limitations
 
-- Workspaces and non-top stack windows are hidden by moving them to the bottom-right
-  corner of their display (macOS has no per-window hide for other apps).
-  Mission Control and ⌘-Tab still show them.
+- Windows in a stack all keep the tile's frame; only z-order changes. The one exception:
+  macOS keeps every window of the *active* app above all others, so an active-app window
+  that is not the top of its stack is temporarily parked off-screen (bottom-right corner)
+  while that app is active. Hidden workspaces are parked the same way (macOS has no
+  per-window hide for other apps); Mission Control and ⌘-Tab still show parked windows.
+- A top window that refuses the tile size (minimum/fixed size) is centred, so the windows
+  behind it in the stack remain visible around it.
 - Apps that enforce a minimum (or fixed) window size will be smaller than their tile, centred in it.
 - Floating windows drop behind tiles once a tile is focused (the AX API cannot keep an
   inactive app's window on top); use ⌘-Tab or click to bring one back.

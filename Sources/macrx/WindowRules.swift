@@ -15,8 +15,8 @@ struct WindowRules {
             if r.ignore { return .ignore }
             if r.float { return .float }
         }
-        // Dialogs, utility panels, etc. are never tiled.
-        guard window.isStandard else { return .float }
+        // Dialogs, utility panels, fixed-size windows etc. are never tiled.
+        guard window.isStandard, window.isResizable else { return .float }
         return .tile
     }
 }

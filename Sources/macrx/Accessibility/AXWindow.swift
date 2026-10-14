@@ -55,6 +55,13 @@ struct AXWindow: Hashable {
     /// `true` if the element is still backed by a live window.
     var isAlive: Bool { element.attribute(kAXRoleAttribute, as: String.self) != nil }
 
+    /// `false` for fixed-size windows (Calculator, many utility windows).
+    var isResizable: Bool {
+        var settable: DarwinBoolean = false
+        guard AXUIElementIsAttributeSettable(element, kAXSizeAttribute as CFString, &settable) == .success else { return true }
+        return settable.boolValue
+    }
+
     var frame: CGRect? {
         guard let posV: AXValue = element.attribute(kAXPositionAttribute),
               let sizeV: AXValue = element.attribute(kAXSizeAttribute)

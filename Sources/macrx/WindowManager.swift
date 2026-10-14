@@ -21,6 +21,8 @@ final class WindowManager {
     /// Currently visible tiles, with the display each belongs to.
     private var tiles: [(tile: Tile, display: DisplayID)] = []
     private var desiredFrames: [WindowID: CGRect] = [:]
+    /// Frames actually achieved for windows that refused their tile size (centered in the tile).
+    private var effectiveFrames: [WindowID: CGRect] = [:]
     private var verifyScheduled = false
     private var lastCorrection: [WindowID: Date] = [:]
 
@@ -104,6 +106,7 @@ final class WindowManager {
         axWindows[id] = nil
         titles[id] = nil
         lastApplied[id] = nil
+        effectiveFrames[id] = nil
         parked.remove(id)
         applyLayout()
         if wasFocused, let r = replacement { focus(r) }
@@ -328,7 +331,7 @@ final class WindowManager {
         for (id, rect) in desired {
             guard let ax = axWindows[id] else { continue }
             if parked.contains(id) || lastApplied[id] != rect {
-                ax.setFrame(rect)
+                place(ax, in: rect)
                 lastApplied[id] = rect
                 parked.remove(id)
             }
@@ -351,6 +354,24 @@ final class WindowManager {
         }
     }
 
+    /// Applies `rect`; if the app clamps the size (minimum-size constraints), centers the
+    /// window inside the tile instead of leaving it in the corner. Returns the effective frame.
+    @discardableResult
+    private func place(_ ax: AXWindow, in rect: CGRect) -> CGRect {
+        ax.setFrame(rect)
+        guard let actual = ax.frame else { return rect }
+        if abs(actual.width - rect.width) > 2 || abs(actual.height - rect.height) > 2 {
+            let centered = CGRect(
+                x: rect.midX - actual.width / 2, y: rect.midY - actual.height / 2,
+                width: actual.width, height: actual.height)
+            ax.setPosition(centered.origin)
+            effectiveFrames[ax.id] = centered
+            return centered
+        }
+        effectiveFrames[ax.id] = nil
+        return rect
+    }
+
     /// After an app moves/resizes its own window, put it back where the layout wants it.
     private func scheduleVerify() {
         guard !verifyScheduled else { return }
@@ -359,15 +380,16 @@ final class WindowManager {
             guard let self else { return }
             self.verifyScheduled = false
             let now = Date()
-            for (id, want) in self.desiredFrames {
+            for (id, desired) in self.desiredFrames {
                 guard let ax = self.axWindows[id], let have = ax.frame else { continue }
+                let want = self.effectiveFrames[id] ?? desired
                 let off = abs(have.minX - want.minX) + abs(have.minY - want.minY)
                     + abs(have.width - want.width) + abs(have.height - want.height)
                 guard off > 2 else { continue }
                 // Avoid fighting apps that enforce a minimum size: at most one correction per second.
                 if let last = self.lastCorrection[id], now.timeIntervalSince(last) < 1 { continue }
                 self.lastCorrection[id] = now
-                ax.setFrame(want)
+                self.place(ax, in: desired)
             }
         }
     }

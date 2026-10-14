@@ -9,6 +9,8 @@ public enum Command: Equatable, Sendable {
     case stack(Int)                    // cycle within stack by delta
     case moveToDisplay(Direction)
     case workspace(Int)
+    /// Toggle between the current and the previously focused workspace.
+    case workspaceBack
     case moveToWorkspace(Int)
     case fullscreen
     case float
@@ -29,7 +31,9 @@ public enum Command: Equatable, Sendable {
         case ("move", 2):             guard let d = dir() else { return nil }; self = .move(d)
         case ("resize", 2):           guard let d = dir() else { return nil }; self = .resize(d)
         case ("move-to-display", 2):  guard let d = dir() else { return nil }; self = .moveToDisplay(d)
-        case ("workspace", 2):        guard let n = int() else { return nil }; self = .workspace(n)
+        case ("workspace", 2):
+            if arg == "back-and-forth" || arg == "back" { self = .workspaceBack; return }
+            guard let n = int() else { return nil }; self = .workspace(n)
         case ("move-to-workspace", 2):guard let n = int() else { return nil }; self = .moveToWorkspace(n)
         case ("stack", 2):
             switch arg {

@@ -48,6 +48,7 @@ import Foundation
         #expect(Command(string: "move-to-display left") == .moveToDisplay(.left))
         #expect(Command(string: "move-to-workspace 7") == .moveToWorkspace(7))
         #expect(Command(string: "stack next") == .stack(1))
+        #expect(Command(string: "workspace back-and-forth") == .workspaceBack)
         #expect(Command(string: "focus") == nil)
         #expect(Command(string: "focus sideways") == nil)
         #expect(Command(string: "quit now") == nil)

@@ -28,6 +28,9 @@ final class WindowManager {
     private var verifyScheduled = false
     private var lastCorrection: [WindowID: Date] = [:]
     private var lastFocusAt = Date.distantPast
+    /// For `workspace back-and-forth`.
+    private var currentWorkspaceID: Int?
+    private var previousWorkspaceID: Int?
     /// Tiled windows the user is currently drag-resizing (applied on mouse-up).
     private var userResizing: Set<WindowID> = []
 
@@ -170,7 +173,17 @@ final class WindowManager {
 
     // MARK: - Focus
 
+    /// Tracks the previously focused workspace for `workspace back-and-forth`.
+    private func noteWorkspaceChange() {
+        let now = model.focusedWorkspace?.id
+        if now != currentWorkspaceID {
+            previousWorkspaceID = currentWorkspaceID
+            currentWorkspaceID = now
+        }
+    }
+
     func focus(_ id: WindowID, warp: Bool = true) {
+        defer { noteWorkspaceChange() }
         guard let ax = axWindows[id], let ws = model.workspace(containing: id) else { return }
         log("focus \(id) '\(titles[id] ?? "")' warp=\(warp)")
         lastFocusAt = Date()
@@ -302,7 +315,10 @@ final class WindowManager {
 
     func perform(_ cmd: Command) {
         log("cmd \(cmd) focused=\(model.focused.map(String.init(describing:)) ?? "nil")")
+        defer { noteWorkspaceChange() }
         switch cmd {
+        case .workspaceBack:
+            if let prev = previousWorkspaceID, prev != model.focusedWorkspace?.id { perform(.workspace(prev)) }
         case .focus(let dir): focusNeighbor(dir)
         case .move(let dir): moveFocused(dir)
         case .resize(let dir):

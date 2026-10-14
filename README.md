@@ -43,6 +43,7 @@ Command Line Tools ship but SwiftPM needs a few flags to find — see the Makefi
 | `⌥ [` / `⌥ ]` | previous/next window in stack |
 | `⌥⇧ ← ↓ ↑ →` | move window to the display in that direction |
 | `⌥ 1…9` | focus workspace |
+| `⌥ ⇥` | toggle between the current and previous workspace |
 | `⌥⇧ 1…9` | move window to workspace |
 | `⌥ f` | toggle fullscreen |
 | `⌥⇧ space` | toggle floating |
@@ -90,7 +91,7 @@ float = true
 ```
 
 Commands: `focus <dir>`, `move <dir>`, `resize <dir>`, `stack next|prev`,
-`move-to-display <dir>`, `workspace <n>`, `move-to-workspace <n>`, `fullscreen`,
+`move-to-display <dir>`, `workspace <n>`, `workspace back-and-forth`, `move-to-workspace <n>`, `fullscreen`,
 `float`, `toggle-orientation`, `reload`, `quit`. Directions are `left|right|up|down`.
 
 Key names: letters, digits, `left/right/up/down`, `space`, `enter`, `tab`, `esc`,

@@ -74,19 +74,18 @@ final class TabBarView: NSView {
             let hovered = item.id == hoveredID
             let pill = r.insetBy(dx: pillInset, dy: pillInset)
 
+            // Subdued, title-bar-like emphasis: a tinted pill on the focused stack, a neutral
+            // one on unfocused stacks, a faint one under the pointer.
             if selected {
-                let fill = isFocused ? accent : NSColor.labelColor.withAlphaComponent(0.18)
+                let fill = isFocused ? accent.withAlphaComponent(0.32) : NSColor.labelColor.withAlphaComponent(0.12)
                 fill.setFill()
                 NSBezierPath(roundedRect: pill, xRadius: radius, yRadius: radius).fill()
             } else if hovered {
-                NSColor.labelColor.withAlphaComponent(0.10).setFill()
+                NSColor.labelColor.withAlphaComponent(0.08).setFill()
                 NSBezierPath(roundedRect: pill, xRadius: radius, yRadius: radius).fill()
             }
 
-            let fg: NSColor
-            if selected && isFocused { fg = .white }
-            else if selected { fg = .labelColor }
-            else { fg = .secondaryLabelColor }
+            let fg: NSColor = selected ? .labelColor : .secondaryLabelColor
 
             var x = r.minX + hPad
             if let icon = item.icon {
@@ -103,14 +102,8 @@ final class TabBarView: NSView {
             text.draw(with: tr, options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine], attributes: attrs)
         }
 
-        // Bottom edge: hairline, plus an accent line for the focused stack.
-        if isFocused {
-            accent.setFill()
-            CGRect(x: 0, y: bounds.height - 2, width: bounds.width, height: 2).fill()
-        } else {
-            NSColor.separatorColor.setFill()
-            CGRect(x: 0, y: bounds.height - 1, width: bounds.width, height: 1).fill()
-        }
+        NSColor.separatorColor.setFill()
+        CGRect(x: 0, y: bounds.height - 1, width: bounds.width, height: 1).fill()
     }
 
     func tab(at viewPoint: CGPoint) -> WindowID? {

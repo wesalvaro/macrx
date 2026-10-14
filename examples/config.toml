@@ -3,6 +3,7 @@
 focus-follows-mouse = true
 mouse-follows-focus = true
 resize-step = 0.05
+menu-bar = true          # workspace indicator in the menu bar
 
 [tab-bar]
 show = "multiple"        # multiple | always | never

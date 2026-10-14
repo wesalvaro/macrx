@@ -7,6 +7,7 @@ final class DisplayManager {
     private(set) var displays: [Display] = []
     /// Full (not just visible) frame per display, in AX coordinates. Used to park hidden windows.
     private(set) var fullFrames: [DisplayID: CGRect] = [:]
+    private(set) var names: [DisplayID: String] = [:]
     var onChange: (([Display]) -> Void)?
     private var observer: NSObjectProtocol?
 
@@ -28,14 +29,17 @@ final class DisplayManager {
     func refresh() {
         var result: [Display] = []
         var full: [DisplayID: CGRect] = [:]
+        var names: [DisplayID: String] = [:]
         for screen in NSScreen.screens {
             guard let num = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else { continue }
             let id = DisplayID(num.uint32Value)
             result.append(Display(id: id, frame: CoordinateSpace.toAX(screen.visibleFrame)))
             full[id] = CoordinateSpace.toAX(screen.frame)
+            names[id] = screen.localizedName
         }
         displays = result
         fullFrames = full
+        self.names = names
     }
 
     func display(containing point: CGPoint) -> Display? {

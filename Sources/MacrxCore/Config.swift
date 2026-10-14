@@ -123,6 +123,8 @@ public struct Config: Equatable, Sendable {
     public var focusFollowsMouse = true
     public var mouseFollowsFocus = true
     public var resizeStep: Double = 0.05
+    /// Show the workspace indicator in the menu bar.
+    public var menuBar = true
     public var tabBar = TabBarConfig()
     public var bindings: [KeyCombo: Command] = [:]
     public var rules: [Rule] = []
@@ -147,6 +149,7 @@ public struct Config: Equatable, Sendable {
         cfg.focusFollowsMouse = raw.focusFollowsMouse ?? true
         cfg.mouseFollowsFocus = raw.mouseFollowsFocus ?? true
         cfg.resizeStep = raw.resizeStep ?? 0.05
+        cfg.menuBar = raw.menuBar ?? true
         cfg.tabBar = raw.tabBar ?? TabBarConfig()
         cfg.rules = raw.rule ?? []
         for (keyString, cmdString) in raw.binding ?? [:] {
@@ -165,6 +168,7 @@ public struct Config: Equatable, Sendable {
         var focusFollowsMouse: Bool?
         var mouseFollowsFocus: Bool?
         var resizeStep: Double?
+        var menuBar: Bool?
         var tabBar: TabBarConfig?
         var binding: [String: String]?
         var rule: [Rule]?
@@ -174,6 +178,7 @@ public struct Config: Equatable, Sendable {
             focusFollowsMouse = try c.decodeIfPresent(Bool.self, forKey: .focusFollowsMouse)
             mouseFollowsFocus = try c.decodeIfPresent(Bool.self, forKey: .mouseFollowsFocus)
             resizeStep = try c.decodeNumberIfPresent(forKey: .resizeStep)
+            menuBar = try c.decodeIfPresent(Bool.self, forKey: .menuBar)
             tabBar = try c.decodeIfPresent(TabBarConfig.self, forKey: .tabBar)
             binding = try c.decodeIfPresent([String: String].self, forKey: .binding)
             rule = try c.decodeIfPresent([Rule].self, forKey: .rule)
@@ -183,6 +188,7 @@ public struct Config: Equatable, Sendable {
             case focusFollowsMouse = "focus-follows-mouse"
             case mouseFollowsFocus = "mouse-follows-focus"
             case resizeStep = "resize-step"
+            case menuBar = "menu-bar"
             case tabBar = "tab-bar"
             case binding, rule
         }
@@ -196,6 +202,7 @@ public struct Config: Equatable, Sendable {
     focus-follows-mouse = true
     mouse-follows-focus = true
     resize-step = 0.05
+    menu-bar = true          # workspace indicator in the menu bar
 
     [tab-bar]
     show = "multiple"        # multiple | always | never

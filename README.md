@@ -10,7 +10,8 @@ A small, keyboard-driven tiling window manager for macOS, in the spirit of i3.
 - Focus moves in any direction (across displays too); the mouse follows focus and
   focus follows the mouse.
 - Drag a window's edge with the mouse and its tile (and the neighbouring tiles) resize to match.
-- Global workspaces `1`–`9`, each living on one display at a time.
+- Global workspaces `1`–`9`, each living on one display at a time; a menu bar item shows
+  each display's workspace (`2 · 5`, focused display emphasised) with a dropdown to switch.
 - Everything is configured in `~/.config/macrx/config.toml`.
 
 macrx uses only public-ish Accessibility APIs: no SIP changes, no kernel extensions.
@@ -70,6 +71,7 @@ See [examples/config.toml](examples/config.toml).
 focus-follows-mouse = true
 mouse-follows-focus = true
 resize-step = 0.05
+menu-bar = true
 
 [tab-bar]
 show = "multiple"   # multiple | always | never

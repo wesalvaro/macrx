@@ -11,6 +11,7 @@ final class WindowManager {
     private let watcher: WindowWatcher
     private let mouse: MouseController
     private let tabBars: TabBarController
+    private let statusBar = StatusBar()
 
     private var axWindows: [WindowID: AXWindow] = [:]
     private var titles: [WindowID: String] = [:]
@@ -51,6 +52,9 @@ final class WindowManager {
         mouse.onMouseUp = { [weak self] in self?.finishUserResize() }
         mouse.startDragTracking()
         tabBars.onTabClicked = { [weak self] w in self?.focus(w, warp: false) }
+        statusBar.onSelectWorkspace = { [weak self] n in self?.perform(.workspace(n)) }
+        statusBar.onReload = { [weak self] in self?.onReload?() }
+        statusBar.onQuit = { [weak self] in self?.onQuit?() }
         applyConfig(config)
     }
 
@@ -64,6 +68,7 @@ final class WindowManager {
         tabBars.fontSize = CGFloat(cfg.tabBar.fontSize)
         tabBars.widthMode = cfg.tabBar.tabWidth
         if cfg.focusFollowsMouse { mouse.startFollowing() } else { mouse.stopFollowing() }
+        statusBar.isShown = cfg.menuBar
         applyLayout()
     }
 
@@ -484,6 +489,20 @@ final class WindowManager {
         }
 
         raiseStackTops()
+        updateStatusBar()
+    }
+
+    private func updateStatusBar() {
+        guard statusBar.isShown else { return }
+        let entries = model.displays.map { d -> StatusBar.DisplayEntry in
+            let wss = model.workspaces.values.filter { $0.displayID == d.id }.sorted { $0.id < $1.id }
+            return StatusBar.DisplayEntry(
+                name: displays.names[d.id] ?? "Display",
+                visibleWorkspace: model.visibleWorkspace(on: d.id)?.id ?? 0,
+                isFocused: model.focusedDisplay == d.id,
+                workspaces: wss.map { ($0.id, $0.allWindows.count) })
+        }
+        statusBar.update(entries)
     }
 
     /// Brings the top window of every visible multi-window stack to the front of its tile.

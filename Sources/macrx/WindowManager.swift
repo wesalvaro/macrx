@@ -28,6 +28,8 @@ final class WindowManager {
     private var verifyScheduled = false
     private var lastCorrection: [WindowID: Date] = [:]
     private var lastFocusAt = Date.distantPast
+    /// Tiled windows the user is currently drag-resizing (applied on mouse-up).
+    private var userResizing: Set<WindowID> = []
 
     var onQuit: (() -> Void)?
     var onReload: (() -> Void)?
@@ -43,6 +45,8 @@ final class WindowManager {
         displays.onChange = { [weak self] d in self?.displaysChanged(d) }
         watcher.onEvent = { [weak self] e in self?.handle(e) }
         mouse.onPointerMoved = { [weak self] p in self?.pointerMoved(to: p) }
+        mouse.onMouseUp = { [weak self] in self?.finishUserResize() }
+        mouse.startDragTracking()
         tabBars.onTabClicked = { [weak self] w in self?.focus(w, warp: false) }
         applyConfig(config)
     }
@@ -78,7 +82,13 @@ final class WindowManager {
             syncTabBars()
         case .frameChanged(let id):
             guard axWindows[id] != nil, !parked.contains(id) else { return }
-            scheduleVerify()
+            // A change while the button is held is the user dragging an edge: let it happen and
+            // fold it into the layout on mouse-up. Anything else gets snapped back.
+            if mouse.isPrimaryButtonDown, desiredFrames[id] != nil, effectiveFrames[id] == nil {
+                userResizing.insert(id)
+            } else if userResizing.isEmpty {
+                scheduleVerify()
+            }
         }
     }
 
@@ -513,6 +523,32 @@ final class WindowManager {
                 self.place(ax, in: desired)
             }
         }
+    }
+
+    // MARK: - Mouse resize
+
+    /// Converts a finished drag-resize of a tiled window into split-weight changes.
+    private func finishUserResize() {
+        guard !userResizing.isEmpty else { return }
+        let ids = userResizing
+        userResizing.removeAll()
+        var changed = false
+        for id in ids {
+            guard let ax = axWindows[id], let have = ax.frame, let want = desiredFrames[id],
+                  let ws = model.workspace(containing: id), let display = model.display(ws.displayID) else { continue }
+            let edges: [(Direction, CGFloat)] = [
+                (.left, have.minX - want.minX), (.right, have.maxX - want.maxX),
+                (.up, have.minY - want.minY), (.down, have.maxY - want.maxY),
+            ]
+            for (edge, delta) in edges where abs(delta) >= 2 {
+                var ok = false
+                model.update(ws.id) { ok = $0.tree.resizeEdge(id, edge: edge, by: delta, in: display.frame) }
+                if ok { changed = true; log("mouse resize \(id) \(edge) by \(Int(delta))") }
+            }
+            lastApplied[id] = nil  // force re-apply even if the tile didn't change (snap back)
+        }
+        applyLayout()
+        if !changed { scheduleVerify() }
     }
 
     // MARK: - Shutdown

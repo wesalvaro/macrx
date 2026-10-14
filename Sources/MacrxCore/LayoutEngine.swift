@@ -50,6 +50,20 @@ public enum LayoutEngine {
         }
     }
 
+    /// Frame of every node (splits and stacks) when `tree` is laid out in `rect`.
+    public static func nodeFrames(_ tree: Tree, in rect: CGRect) -> [ObjectIdentifier: CGRect] {
+        var out: [ObjectIdentifier: CGRect] = [:]
+        func walk(_ node: Node, _ r: CGRect) {
+            out[node.id] = r
+            guard node.isSplit else { return }
+            for (child, piece) in zip(node.children, r.split(node.orientation!, weights: node.children.map(\.weight))) {
+                walk(child, piece)
+            }
+        }
+        if let root = tree.root { walk(root, rect) }
+        return out
+    }
+
     /// Convenience: content frame per window.
     public static func frames(
         _ tree: Tree, in rect: CGRect, tabBarHeight: (Int) -> CGFloat = { _ in 0 }

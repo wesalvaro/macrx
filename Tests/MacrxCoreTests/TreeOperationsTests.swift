@@ -190,3 +190,44 @@ import Foundation
         #expect(t.root!.children[1].windows == [w(4)])
     }
 }
+
+@Suite struct ResizeEdgeTests {
+    @Test func draggingSharedEdgeReweightsSplit() {
+        var t = Tree(root: Node(split: .horizontal, children: [Node(stack: [w(1)]), Node(stack: [w(2)])]))
+        t.normalize()
+        // Drag w1's right edge 100px right on a 1000px-wide display → 60/40.
+        let r = t.resizeEdge(w(1), edge: .right, by: 100, in: screen)
+        #expect(r)
+        #expect(abs(t.root!.children[0].weight - 0.6) < 1e-9)
+        #expect(abs(t.root!.children[1].weight - 0.4) < 1e-9)
+        // Drag w2's left edge 100px left → w2 grows back to 50/50.
+        let r2 = t.resizeEdge(w(2), edge: .left, by: -100, in: screen)
+        #expect(r2)
+        #expect(abs(t.root!.children[0].weight - 0.5) < 1e-9)
+    }
+    @Test func displayBoundaryEdgeIsRejected() {
+        var t = Tree(root: Node(split: .horizontal, children: [Node(stack: [w(1)]), Node(stack: [w(2)])]))
+        let r = t.resizeEdge(w(1), edge: .left, by: -50, in: screen)
+        #expect(!r)
+        let r2 = t.resizeEdge(w(1), edge: .down, by: 50, in: screen)
+        #expect(!r2)
+    }
+    @Test func nestedEdgeFindsOuterSplit() {
+        // [ v[A, B] | C ]: dragging A's right edge resizes the outer horizontal split.
+        let col = Node(split: .vertical, children: [Node(stack: [w(1)]), Node(stack: [w(2)])])
+        var t = Tree(root: Node(split: .horizontal, children: [col, Node(stack: [w(3)])]))
+        t.normalize()
+        let r = t.resizeEdge(w(1), edge: .right, by: 200, in: screen)
+        #expect(r)
+        #expect(abs(t.root!.children[0].weight - 0.7) < 1e-9)
+        let f = LayoutEngine.frames(t, in: screen)
+        #expect(f[w(1)]!.width == 700)
+        #expect(f[w(2)]!.width == 700)
+    }
+    @Test func clampsToMinimum() {
+        var t = Tree(root: Node(split: .horizontal, children: [Node(stack: [w(1)]), Node(stack: [w(2)])]))
+        t.normalize()
+        _ = t.resizeEdge(w(1), edge: .right, by: 900, in: screen)
+        #expect(abs(t.root!.children[1].weight - 0.1) < 1e-9)
+    }
+}

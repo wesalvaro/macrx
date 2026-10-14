@@ -8,8 +8,11 @@ final class MouseController {
     /// Called with the current pointer location (AX coordinates) when it moves into a
     /// different region than before. The receiver decides whether that changes focus.
     var onPointerMoved: ((CGPoint) -> Void)?
+    /// Called when the primary button is released anywhere (end of a drag).
+    var onMouseUp: (() -> Void)?
 
     private var monitor: Any?
+    private var upMonitor: Any?
     private var suppressUntil = Date.distantPast
     private var lastHandled = Date.distantPast
     private let throttle: TimeInterval = 0.08
@@ -20,6 +23,17 @@ final class MouseController {
         monitor = NSEvent.addGlobalMonitorForEvents(matching: [.mouseMoved]) { [weak self] _ in
             MainActor.assumeIsolated { self?.pointerMoved() }
         }
+    }
+
+    func startDragTracking() {
+        guard upMonitor == nil else { return }
+        upMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseUp]) { [weak self] _ in
+            MainActor.assumeIsolated { self?.onMouseUp?() }
+        }
+    }
+
+    var isPrimaryButtonDown: Bool {
+        CGEventSource.buttonState(.combinedSessionState, button: .left)
     }
 
     func stopFollowing() {

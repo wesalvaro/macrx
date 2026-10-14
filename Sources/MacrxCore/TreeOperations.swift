@@ -162,6 +162,40 @@ extension Tree {
         return true
     }
 
+    /// Moves the `edge` of the tile containing `w` by `pixels` (positive = towards increasing
+    /// coordinate, i.e. right/down), by re-weighting the nearest ancestor split that shares that
+    /// edge with a sibling. Returns `false` if the edge is on the display boundary.
+    @discardableResult
+    public mutating func resizeEdge(_ w: WindowID, edge: Direction, by pixels: CGFloat, in displayFrame: CGRect, minimum: CGFloat = 0.1) -> Bool {
+        guard abs(pixels) >= 1, let s = stack(containing: w) else { return false }
+        var child: Node = s
+        var anc: Node? = s.parent
+        while let a = anc {
+            if a.orientation == edge.orientation, let idx = a.index(of: child) {
+                let hasNeighbor = edge.isForward ? idx < a.children.count - 1 : idx > 0
+                if hasNeighbor {
+                    let frames = LayoutEngine.nodeFrames(self, in: displayFrame)
+                    guard let rect = frames[a.id] else { return false }
+                    let extent = edge.orientation == .horizontal ? rect.width : rect.height
+                    guard extent > 0 else { return false }
+                    // Moving the right/bottom edge outward grows this child; moving the
+                    // left/top edge outward (negative pixels) also grows it.
+                    var delta = pixels / extent
+                    if !edge.isForward { delta = -delta }
+                    let partner = a.children[edge.isForward ? idx + 1 : idx - 1]
+                    delta = min(delta, partner.weight - minimum)
+                    delta = max(delta, minimum - child.weight)
+                    child.weight += delta
+                    partner.weight -= delta
+                    return true
+                }
+            }
+            child = a
+            anc = a.parent
+        }
+        return false
+    }
+
     // MARK: Orientation
 
     /// Toggles the orientation of the split directly containing `w`'s stack.

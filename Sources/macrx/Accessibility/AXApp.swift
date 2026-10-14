@@ -30,6 +30,6 @@ struct AXApp {
     }
 
     func activate() {
-        runningApp.activate(options: [.activateIgnoringOtherApps])
+        runningApp.activate()
     }
 }

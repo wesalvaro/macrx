@@ -383,11 +383,14 @@ final class WindowManager {
         }
         tiles = newTiles
         desiredFrames = desired
+        let previousAnchors = tabAnchors
         tabAnchors = anchors
 
         for (id, rect) in desired {
             guard let ax = axWindows[id] else { continue }
-            if parked.contains(id) || lastApplied[id] != rect {
+            // Constrained windows also need re-placing when their tab moved (tabs added/removed).
+            let anchorMoved = effectiveFrames[id] != nil && anchors[id] != previousAnchors[id]
+            if parked.contains(id) || lastApplied[id] != rect || anchorMoved {
                 place(ax, in: rect)
                 lastApplied[id] = rect
                 parked.remove(id)

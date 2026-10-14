@@ -35,9 +35,9 @@ Command Line Tools ship but SwiftPM needs a few flags to find — see the Makefi
 
 | Keys | Command |
 |---|---|
-| `⌥ h/j/k/l` | focus left/down/up/right |
-| `⌥⇧ h/j/k/l` | move window (see below) |
-| `⌥⌃ h/j/k/l` | resize −/+ along axis |
+| `⌥ i/k/j/l` | focus up/down/left/right |
+| `⌥⇧ i/k/j/l` | move window (see below) |
+| `⌥⌃ i/k/j/l` | resize up/down/left/right |
 | `⌥ [` / `⌥ ]` | previous/next window in stack |
 | `⌥⇧ ← ↓ ↑ →` | move window to the display in that direction |
 | `⌥ 1…9` | focus workspace |
@@ -74,8 +74,8 @@ height = 26
 font-size = 12
 
 [binding]
-alt-h = "focus left"
-alt-shift-h = "move left"
+alt-j = "focus left"
+alt-shift-j = "move left"
 # ...
 
 [[rule]]

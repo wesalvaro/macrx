@@ -7,7 +7,7 @@ import Foundation
         let cfg = Config.default
         #expect(cfg.focusFollowsMouse)
         #expect(cfg.tabBar.show == .multiple)
-        #expect(cfg.bindings[KeyCombo(string: "alt-h")!] == .focus(.left))
+        #expect(cfg.bindings[KeyCombo(string: "alt-j")!] == .focus(.left))
         let r1 = cfg.bindings[KeyCombo(string: "alt-shift-l")!]
         #expect(r1 == .move(.right))
         #expect(cfg.bindings[KeyCombo(string: "alt-3")!] == .workspace(3))

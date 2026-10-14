@@ -182,15 +182,10 @@ final class WindowManager {
     private func pointerMoved(to p: CGPoint) {
         guard config.focusFollowsMouse else { return }
         // Respect the real z-order: a floating / dialog / unmanaged window over a tile wins.
-        if let topmost = Self.topmostWindow(at: p) {
-            guard axWindows[topmost] != nil else { return }  // unmanaged window: don't steal focus
-            if topmost != model.focused { focus(topmost, warp: false) }
-            return
-        }
-        // Nothing at the normal window layer (e.g. the pointer is over our tab bar or the desktop).
-        guard let hit = tiles.first(where: { $0.tile.frame.contains(p) }) else { return }
-        let target = hit.tile.top
-        if target != model.focused { focus(target, warp: false) }
+        // Only actual window content counts — hovering our tab bars or the desktop does nothing,
+        // so moving towards a tab never yanks focus away from (and raises a tile over) a floating window.
+        guard let topmost = Self.topmostWindow(at: p), axWindows[topmost] != nil else { return }
+        if topmost != model.focused { focus(topmost, warp: false) }
     }
 
     /// The frontmost normal-layer on-screen window containing `p` (CG/AX coordinates).

@@ -106,8 +106,8 @@ tiled too and sit centred in their tile.
   that is not the top of its stack is temporarily parked off-screen (bottom-right corner)
   while that app is active. Hidden workspaces are parked the same way (macOS has no
   per-window hide for other apps); Mission Control and ⌘-Tab still show parked windows.
-- A top window that refuses the tile size (minimum/fixed size) is centred, so the windows
-  behind it in the stack remain visible around it.
+- A top window that refuses the tile size (minimum/fixed size) sits directly under its tab
+  (or centred when there is no tab bar); the windows behind it remain visible around it.
 - Apps that enforce a minimum (or fixed) window size will be smaller than their tile, centred in it.
 - Floating windows drop behind tiles once a tile is focused (the AX API cannot keep an
   inactive app's window on top); use ⌘-Tab or click to bring one back.

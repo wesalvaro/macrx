@@ -23,6 +23,8 @@ final class WindowManager {
     private var desiredFrames: [WindowID: CGRect] = [:]
     /// Frames actually achieved for windows that refused their tile size (centered in the tile).
     private var effectiveFrames: [WindowID: CGRect] = [:]
+    /// The tab rect of each window in a tab bar; size-constrained windows are anchored under it.
+    private var tabAnchors: [WindowID: CGRect] = [:]
     private var verifyScheduled = false
     private var lastCorrection: [WindowID: Date] = [:]
     private var lastFocusAt = Date.distantPast
@@ -339,6 +341,7 @@ final class WindowManager {
 
     func applyLayout() {
         var desired: [WindowID: CGRect] = [:]
+        var anchors: [WindowID: CGRect] = [:]
         var toPark: Set<WindowID> = []
         var newTiles: [(tile: Tile, display: DisplayID)] = []
         var fullscreenDisplays: Set<DisplayID> = []
@@ -354,6 +357,12 @@ final class WindowManager {
                 let ts = LayoutEngine.tiles(ws.tree, in: display.frame, tabBarHeight: tabBarHeight)
                 for t in ts {
                     desired[t.top] = t.content
+                    if t.hasTabBar {
+                        let w = t.tabBar.width / CGFloat(t.windows.count)
+                        for (i, id) in t.windows.enumerated() {
+                            anchors[id] = CGRect(x: t.tabBar.minX + w * CGFloat(i), y: t.tabBar.minY, width: w, height: t.tabBar.height)
+                        }
+                    }
                     for w in t.windows where w != t.top {
                         // Stack members stay in place; only z-order distinguishes the top.
                         // Exception: macOS keeps *all* windows of the active app above everything
@@ -374,6 +383,7 @@ final class WindowManager {
         }
         tiles = newTiles
         desiredFrames = desired
+        tabAnchors = anchors
 
         for (id, rect) in desired {
             guard let ax = axWindows[id] else { continue }
@@ -420,12 +430,19 @@ final class WindowManager {
         ax.setFrame(rect)
         guard let actual = ax.frame else { return rect }
         if abs(actual.width - rect.width) > 2 || abs(actual.height - rect.height) > 2 {
-            let centered = CGRect(
-                x: rect.midX - actual.width / 2, y: rect.midY - actual.height / 2,
-                width: actual.width, height: actual.height)
-            ax.setPosition(centered.origin)
-            effectiveFrames[ax.id] = centered
-            return centered
+            let placed: CGRect
+            if let tab = tabAnchors[ax.id] {
+                // In a tab group: sit directly below its tab (clamped to the tile), so moving the
+                // pointer down from the tab lands on this window rather than the one behind it.
+                let x = min(max(tab.midX - actual.width / 2, rect.minX), max(rect.minX, rect.maxX - actual.width))
+                placed = CGRect(x: x, y: rect.minY, width: actual.width, height: actual.height)
+            } else {
+                placed = CGRect(x: rect.midX - actual.width / 2, y: rect.midY - actual.height / 2,
+                                width: actual.width, height: actual.height)
+            }
+            ax.setPosition(placed.origin)
+            effectiveFrames[ax.id] = placed
+            return placed
         }
         effectiveFrames[ax.id] = nil
         return rect

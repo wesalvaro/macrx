@@ -25,6 +25,7 @@ final class WindowManager {
     private var effectiveFrames: [WindowID: CGRect] = [:]
     private var verifyScheduled = false
     private var lastCorrection: [WindowID: Date] = [:]
+    private var lastFocusAt = Date.distantPast
 
     var onQuit: (() -> Void)?
     var onReload: (() -> Void)?
@@ -128,6 +129,12 @@ final class WindowManager {
             log("ignored stale focus report \(id)")
             return
         }
+        // Right after we focused a different window of the same app, a report for the old window
+        // is the app lagging (or refusing) the key-window switch, not the user — don't ping-pong.
+        if let f = model.focused, f.pid == id.pid, Date().timeIntervalSince(lastFocusAt) < 1.0 {
+            log("ignored same-app focus report \(id) shortly after focusing \(f)")
+            return
+        }
         log("external focus \(id)")
         if !model.isVisible(ws.id) { model.focusWorkspace(ws.id) }
         model.setFocused(id)
@@ -153,11 +160,16 @@ final class WindowManager {
     func focus(_ id: WindowID, warp: Bool = true) {
         guard let ax = axWindows[id], let ws = model.workspace(containing: id) else { return }
         log("focus \(id) '\(titles[id] ?? "")' warp=\(warp)")
+        lastFocusAt = Date()
         if !model.isVisible(ws.id) { model.focusWorkspace(ws.id) }
         model.setFocused(id)
         model.update(ws.id) { $0.tree.makeTop(id) }
         applyLayout()
 
+        // Window-server level focus (handles apps that ignore AX focus attributes, e.g. kitty),
+        // then the AX path which also covers the fallback when SkyLight isn't available.
+        let sl = SkyLight.focus(pid: id.pid, windowID: id.cgID)
+        if !sl { log("skylight focus unavailable/failed for \(id)") }
         ax.raise()
         watcher.app(for: id.pid)?.activate()
         // Activation reorders all of the app's windows; re-assert ours shortly after.
@@ -166,6 +178,16 @@ final class WindowManager {
             ax.raise()
             self.raiseStackTops()
             self.tabBars.bringToFront()
+        }
+        // Some apps (GLFW-based like kitty) ignore every programmatic key-window switch within
+        // the app. If the app still reports a different key window, click its title bar.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+            guard let self, self.model.focused == id, let app = self.watcher.app(for: id.pid),
+                  NSWorkspace.shared.frontmostApplication?.processIdentifier == id.pid,
+                  let key = app.focusedWindow?.id, key != id,
+                  let f = ax.frame else { return }
+            self.log("app kept \(key) as key window; clicking title bar of \(id)")
+            self.mouse.clickAndRestore(at: CGPoint(x: f.midX, y: f.minY + 8))
         }
 
         if warp && config.mouseFollowsFocus, let f = currentFrame(of: id) {

@@ -43,6 +43,20 @@ final class MouseController {
         suppressUntil = Date().addingTimeInterval(suppression)
     }
 
+    /// Synthesizes a left click at `point` (AX coordinates) and puts the pointer back where it was.
+    /// Used as a last resort to make a window key in apps that ignore AX/window-server focus.
+    func clickAndRestore(at point: CGPoint) {
+        let original = location
+        suppress()
+        for type in [CGEventType.leftMouseDown, .leftMouseUp] {
+            CGEvent(mouseEventSource: nil, mouseType: type, mouseCursorPosition: point, mouseButton: .left)?
+                .post(tap: .cghidEventTap)
+        }
+        CGWarpMouseCursorPosition(original)
+        CGAssociateMouseAndMouseCursorPosition(1)
+        suppress()
+    }
+
     private func pointerMoved() {
         let now = Date()
         if now < suppressUntil {

@@ -93,7 +93,10 @@ struct AXWindow: Hashable {
 
     func raise() {
         AXUIElementPerformAction(element, kAXRaiseAction as CFString)
+        // Main + focused: needed for the app to switch its key window to this one
+        // (raising alone only reorders).
         _ = element.setAttribute(kAXMainAttribute, kCFBooleanTrue)
+        _ = element.setAttribute(kAXFocusedAttribute, kCFBooleanTrue)
     }
 
     func unminimize() {

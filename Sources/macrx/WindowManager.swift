@@ -55,6 +55,7 @@ final class WindowManager {
     func applyConfig(_ cfg: Config) {
         config = cfg
         tabBars.fontSize = CGFloat(cfg.tabBar.fontSize)
+        tabBars.widthMode = cfg.tabBar.tabWidth
         if cfg.focusFollowsMouse { mouse.startFollowing() } else { mouse.stopFollowing() }
         applyLayout()
     }
@@ -248,14 +249,16 @@ final class WindowManager {
         guard config.focusFollowsMouse else { return }
         // Tab bars: hovering a tab switches to it. Never look through the bar at windows beneath.
         if tabBars.frames.values.contains(where: { $0.contains(p) }) {
-            if config.tabBar.switchOn == .hover,
-               let hit = tabBars.tab(at: p, tiles: tiles.map(\.tile)),
+            let hit = tabBars.tab(at: p)
+            tabBars.setHovered(hit?.window)
+            if config.tabBar.switchOn == .hover, let hit,
                let tile = tiles.first(where: { $0.tile.stackID == hit.stack })?.tile,
                hit.window != tile.top {
                 focus(hit.window, warp: false)
             }
             return
         }
+        tabBars.setHovered(nil)
         // Respect the real z-order: a floating / dialog / unmanaged window over a tile wins.
         // Only actual window content counts — the desktop does nothing.
         guard let topmost = Self.topmostWindow(at: p), axWindows[topmost] != nil else { return }
@@ -393,12 +396,6 @@ final class WindowManager {
                 let ts = LayoutEngine.tiles(ws.tree, in: display.frame, tabBarHeight: tabBarHeight)
                 for t in ts {
                     desired[t.top] = t.content
-                    if t.hasTabBar {
-                        let w = t.tabBar.width / CGFloat(t.windows.count)
-                        for (i, id) in t.windows.enumerated() {
-                            anchors[id] = CGRect(x: t.tabBar.minX + w * CGFloat(i), y: t.tabBar.minY, width: w, height: t.tabBar.height)
-                        }
-                    }
                     for w in t.windows where w != t.top {
                         // Stack members stay in place; only z-order distinguishes the top.
                         // Exception: macOS keeps *all* windows of the active app above everything
@@ -419,6 +416,9 @@ final class WindowManager {
         }
         tiles = newTiles
         desiredFrames = desired
+        // Tab bars first: constrained windows are anchored under their (content-sized) tabs.
+        syncTabBars(excluding: fullscreenDisplays)
+        for id in desired.keys { if let a = tabBars.anchor(for: id) { anchors[id] = a } }
         let previousAnchors = tabAnchors
         tabAnchors = anchors
 
@@ -440,7 +440,6 @@ final class WindowManager {
             lastApplied[id] = nil
         }
 
-        syncTabBars(excluding: fullscreenDisplays)
         raiseStackTops()
     }
 
@@ -458,7 +457,10 @@ final class WindowManager {
     private func syncTabBars(excluding fullscreenDisplays: Set<DisplayID> = []) {
         let visibleTiles = tiles.filter { !fullscreenDisplays.contains($0.display) }.map(\.tile)
         tabBars.sync(tiles: visibleTiles, focused: model.focused) { [self] id in
-            TabItem(id: id, title: titles[id] ?? "", icon: watcher.app(for: id.pid)?.icon)
+            let app = watcher.app(for: id.pid)
+            let full = titles[id] ?? ""
+            let label = config.tabBar.stripAppSuffix ? TitleCleaner.clean(full, appName: app?.name) : (full.isEmpty ? (app?.name ?? "Untitled") : full)
+            return TabItem(id: id, title: label, fullTitle: full.isEmpty ? (app?.name ?? "") : full, icon: app?.icon)
         }
     }
 

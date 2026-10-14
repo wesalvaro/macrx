@@ -7,6 +7,7 @@ import Foundation
         let cfg = Config.default
         #expect(cfg.focusFollowsMouse)
         #expect(cfg.tabBar.show == .multiple)
+        #expect(cfg.tabBar.switchOn == .hover)
         #expect(cfg.bindings[KeyCombo(string: "alt-j")!] == .focus(.left))
         let r1 = cfg.bindings[KeyCombo(string: "alt-shift-l")!]
         #expect(r1 == .move(.right))
@@ -23,12 +24,14 @@ import Foundation
         focus-follows-mouse = false
         [tab-bar]
         show = "always"
+        switch-on = "click"
         [binding]
         cmd-ctrl-space = "float"
         """)
         #expect(!(cfg.focusFollowsMouse))
         #expect(cfg.mouseFollowsFocus)
         #expect(cfg.tabBar.show == .always)
+        #expect(cfg.tabBar.switchOn == .click)
         #expect(cfg.tabBar.height == 26)
         #expect(cfg.bindings == [KeyCombo(modifiers: [.cmd, .ctrl], keyCode: 0x31): .float])
     }

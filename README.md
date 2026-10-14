@@ -70,6 +70,7 @@ resize-step = 0.05
 
 [tab-bar]
 show = "multiple"   # multiple | always | never
+switch-on = "hover" # hover | click
 height = 26
 font-size = 12
 

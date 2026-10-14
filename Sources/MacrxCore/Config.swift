@@ -9,16 +9,25 @@ public enum TabBarVisibility: String, Codable, Sendable {
     case never
 }
 
+public enum TabSwitchMode: String, Codable, Sendable {
+    /// Moving the pointer over a tab switches to it.
+    case hover
+    /// Tabs switch only when clicked.
+    case click
+}
+
 public struct TabBarConfig: Codable, Equatable, Sendable {
     public var show: TabBarVisibility = .multiple
     public var height: Double = 26
     public var fontSize: Double = 12
+    public var switchOn: TabSwitchMode = .hover
 
     public init() {}
 
     enum CodingKeys: String, CodingKey {
         case show, height
         case fontSize = "font-size"
+        case switchOn = "switch-on"
     }
 
     public init(from decoder: Decoder) throws {
@@ -26,6 +35,7 @@ public struct TabBarConfig: Codable, Equatable, Sendable {
         show = try c.decodeIfPresent(TabBarVisibility.self, forKey: .show) ?? .multiple
         height = try c.decodeNumberIfPresent(forKey: .height) ?? 26
         fontSize = try c.decodeNumberIfPresent(forKey: .fontSize) ?? 12
+        switchOn = try c.decodeIfPresent(TabSwitchMode.self, forKey: .switchOn) ?? .hover
     }
 
     /// Height of the bar for a stack with `count` windows.
@@ -176,6 +186,7 @@ public struct Config: Equatable, Sendable {
 
     [tab-bar]
     show = "multiple"        # multiple | always | never
+    switch-on = "hover"      # hover | click
     height = 26
     font-size = 12
 

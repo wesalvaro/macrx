@@ -248,7 +248,8 @@ final class WindowManager {
         guard config.focusFollowsMouse else { return }
         // Tab bars: hovering a tab switches to it. Never look through the bar at windows beneath.
         if tabBars.frames.values.contains(where: { $0.contains(p) }) {
-            if let hit = tabBars.tab(at: p, tiles: tiles.map(\.tile)),
+            if config.tabBar.switchOn == .hover,
+               let hit = tabBars.tab(at: p, tiles: tiles.map(\.tile)),
                let tile = tiles.first(where: { $0.tile.stackID == hit.stack })?.tile,
                hit.window != tile.top {
                 focus(hit.window, warp: false)

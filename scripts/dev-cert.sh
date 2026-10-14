@@ -44,4 +44,4 @@ security add-trusted-cert -d -r trustRoot -p codeSign -k "$KEYCHAIN" "$TMP/cert.
 # Let codesign use the key without a UI prompt each build.
 security set-key-partition-list -S apple-tool:,apple: -s -k "" "$KEYCHAIN" >/dev/null 2>&1 || true
 
-echo "created identity '$NAME'. Now: make run"
+echo "created identity '$NAME'. Now: just run"

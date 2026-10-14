@@ -26,15 +26,15 @@ macrx uses only public-ish Accessibility APIs: no SIP changes, no kernel extensi
 ## Build & run
 
 ```sh
-make dev-cert   # once: self-signed identity so the Accessibility grant survives rebuilds
-make run        # build, sign, launch
+just dev-cert   # once: self-signed identity so the Accessibility grant survives rebuilds
+just run        # build, sign, launch
 ```
 
 On first launch macOS asks you to grant **Accessibility** access
 (System Settings → Privacy & Security → Accessibility). macrx waits until it is granted.
 
-`make test` runs the unit tests for the layout core (uses Swift Testing, which the
-Command Line Tools ship but SwiftPM needs a few flags to find — see the Makefile).
+`just test` runs the unit tests for the layout core (uses Swift Testing, which the
+Command Line Tools ship but SwiftPM needs a few flags to find — see the Justfile).
 
 ## Default keybindings
 

@@ -300,11 +300,15 @@ final class WindowManager {
             model.update(ws.id) { $0.tree.resize(w, dir, step: CGFloat(config.resizeStep)) }
             applyLayout()
         case .stack(let delta):
-            guard let w = model.focused, let ws = model.workspace(containing: w) else { return }
-            var next: WindowID?
-            model.update(ws.id) { next = $0.tree.cycleStack(w, by: delta) }
-            // Same tile, so the pointer is already over the window: don't move it.
-            if let next { focus(next, warp: false) }
+            // All visible tabs, across tiles and displays, behave as one long tab strip:
+            // stepping past the end of a stack continues into the neighbouring tile.
+            guard let w = model.focused else { return }
+            let strip = tiles.flatMap { $0.tile.windows }
+            guard let i = strip.firstIndex(of: w), strip.count > 1 else { return }
+            let next = strip[((i + delta) % strip.count + strip.count) % strip.count]
+            let sameTile = tiles.contains { $0.tile.windows.contains(w) && $0.tile.windows.contains(next) }
+            // Within a tile the pointer is already over the window; across tiles it should follow.
+            focus(next, warp: !sameTile)
         case .moveToDisplay(let dir):
             guard let w = model.focused, model.moveWindow(w, toDisplay: dir) else { return }
             applyLayout()

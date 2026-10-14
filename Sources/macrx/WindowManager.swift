@@ -40,7 +40,7 @@ final class WindowManager {
         displays.onChange = { [weak self] d in self?.displaysChanged(d) }
         watcher.onEvent = { [weak self] e in self?.handle(e) }
         mouse.onPointerMoved = { [weak self] p in self?.pointerMoved(to: p) }
-        tabBars.onTabClicked = { [weak self] w in self?.focus(w) }
+        tabBars.onTabClicked = { [weak self] w in self?.focus(w, warp: false) }
         applyConfig(config)
     }
 
@@ -226,7 +226,8 @@ final class WindowManager {
             guard let w = model.focused, let ws = model.workspace(containing: w) else { return }
             var next: WindowID?
             model.update(ws.id) { next = $0.tree.cycleStack(w, by: delta) }
-            if let next { focus(next) }
+            // Same tile, so the pointer is already over the window: don't move it.
+            if let next { focus(next, warp: false) }
         case .moveToDisplay(let dir):
             guard let w = model.focused, model.moveWindow(w, toDisplay: dir) else { return }
             applyLayout()

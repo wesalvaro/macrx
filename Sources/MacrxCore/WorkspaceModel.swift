@@ -233,6 +233,22 @@ public struct WorkspaceModel {
         return true
     }
 
+    /// Moves the focused workspace to the display in `dir`, swapping it with the workspace
+    /// that display is currently showing. Returns `false` if there is no display that way.
+    @discardableResult
+    public mutating func moveFocusedWorkspace(toDisplay dir: Direction) -> Bool {
+        guard let ws = focusedWorkspace, let target = display(in: dir, from: ws.displayID), target.id != ws.displayID else { return false }
+        let source = ws.displayID
+        if let otherID = visible[target.id] {
+            workspaces[otherID]!.displayID = source
+            visible[source] = otherID
+        }
+        workspaces[ws.id]!.displayID = target.id
+        visible[target.id] = ws.id
+        focusedDisplay = target.id
+        return true
+    }
+
     public mutating func toggleFloating(_ w: WindowID) {
         guard let ws = workspace(containing: w) else { return }
         if ws.floating.contains(w) {

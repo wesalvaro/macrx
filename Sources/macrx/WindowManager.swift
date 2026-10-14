@@ -345,6 +345,11 @@ final class WindowManager {
             let sameTile = tiles.contains { $0.tile.windows.contains(w) && $0.tile.windows.contains(next) }
             // Within a tile the pointer is already over the window; across tiles it should follow.
             focus(next, warp: !sameTile)
+        case .moveWorkspaceToDisplay(let dir):
+            guard model.moveFocusedWorkspace(toDisplay: dir) else { return }
+            applyLayout()
+            if let w = model.focused { focus(w) }
+            else if config.mouseFollowsFocus, let d = model.focusedDisplay.flatMap(model.display) { mouse.warp(to: d.frame.center) }
         case .moveToDisplay(let dir):
             guard let w = model.focused, model.moveWindow(w, toDisplay: dir) else { return }
             applyLayout()

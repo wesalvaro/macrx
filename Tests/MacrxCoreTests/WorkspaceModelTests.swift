@@ -112,4 +112,16 @@ import Foundation
         m.remove(w(1))
         #expect(m.workspace(1)!.fullscreen == nil)
     }
+
+    @Test func MoveWorkspaceSwapsDisplays() {
+        var m = WorkspaceModel(displays: [d1, d2])
+        m.add(w(1)); m.setFocused(w(1))              // ws1 on d1
+        #expect(m.moveFocusedWorkspace(toDisplay: .right))
+        #expect(m.workspace(1)?.displayID == d2.id)
+        #expect(m.workspace(2)?.displayID == d1.id)
+        #expect(m.visibleWorkspace(on: d2.id)?.id == 1)
+        #expect(m.visibleWorkspace(on: d1.id)?.id == 2)
+        #expect(m.focusedDisplay == d2.id)
+        #expect(!m.moveFocusedWorkspace(toDisplay: .right))
+    }
 }

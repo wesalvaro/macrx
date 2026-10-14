@@ -238,6 +238,10 @@ public struct Config: Equatable, Sendable {
     alt-shift-down = "move-to-display down"
     alt-shift-up = "move-to-display up"
     alt-shift-right = "move-to-display right"
+    alt-ctrl-left = "move-workspace-to-display left"
+    alt-ctrl-down = "move-workspace-to-display down"
+    alt-ctrl-up = "move-workspace-to-display up"
+    alt-ctrl-right = "move-workspace-to-display right"
 
     # Workspaces
     alt-1 = "workspace 1"

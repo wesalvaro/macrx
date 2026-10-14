@@ -6,6 +6,11 @@ enum WindowDisposition {
 }
 
 /// Decides how a newly seen window should be treated.
+///
+/// Everything is tiled by default. Floating is strictly opt-in: a `[[rule]]` with
+/// `float = true`, or the user toggling it at runtime. (Windows that aren't real
+/// windows — sheets, popovers, menus — never reach this point; `WindowWatcher` only
+/// tracks elements with the `AXWindow` role.)
 struct WindowRules {
     var rules: [Rule]
 
@@ -15,8 +20,6 @@ struct WindowRules {
             if r.ignore { return .ignore }
             if r.float { return .float }
         }
-        // Dialogs, utility panels, fixed-size windows etc. are never tiled.
-        guard window.isStandard, window.isResizable else { return .float }
         return .tile
     }
 }

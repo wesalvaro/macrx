@@ -93,13 +93,17 @@ Key names: letters, digits, `left/right/up/down`, `space`, `enter`, `tab`, `esc`
 `slash`, `backslash`, `semicolon`, `quote`, `backtick`, `f1`–`f12`.
 Modifiers: `alt` (`opt`), `shift`, `ctrl`, `cmd`.
 
-Rules match on `app-id` (bundle identifier) and/or `title-regex`; set `float = true`
-to keep a window out of the layout or `ignore = true` to leave it entirely alone.
-Non-standard windows (dialogs, panels, sheets) always float.
+Every window is tiled by default. Rules match on `app-id` (bundle identifier) and/or
+`title-regex`; set `float = true` to keep a window out of the layout (it keeps its own
+frame and ordinary macOS stacking) or `ignore = true` to leave it entirely alone.
+`⌥⇧space` toggles floating for the focused window at runtime. Fixed-size windows are
+tiled too and sit centred in their tile.
 
 ## Known limitations
 
 - Workspaces and non-top stack windows are hidden by moving them to the bottom-right
   corner of their display (macOS has no per-window hide for other apps).
   Mission Control and ⌘-Tab still show them.
-- Apps that enforce a minimum window size will be smaller than their tile.
+- Apps that enforce a minimum (or fixed) window size will be smaller than their tile, centred in it.
+- Floating windows drop behind tiles once a tile is focused (the AX API cannot keep an
+  inactive app's window on top); use ⌘-Tab or click to bring one back.

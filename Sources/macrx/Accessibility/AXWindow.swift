@@ -55,6 +55,18 @@ struct AXWindow: Hashable {
     /// `true` if the element is still backed by a live window.
     var isAlive: Bool { element.attribute(kAXRoleAttribute, as: String.self) != nil }
 
+    /// `true` if the window sits at the normal document level (`kCGNormalWindowLevel`).
+    /// Popups, hover cards, tooltips and HUDs live at higher levels even when their AX
+    /// subrole claims they are standard windows (e.g. Chrome's tab preview card), so this
+    /// is the reliable tell for "a real window". Unknown to the window server → `false`.
+    var isNormalLevel: Bool {
+        guard let list = CGWindowListCopyWindowInfo(.optionIncludingWindow, id.cgID) as? [[String: Any]],
+              let info = list.first,
+              let layer = info[kCGWindowLayer as String] as? Int
+        else { return false }
+        return layer == kCGNormalWindowLevel
+    }
+
     /// `false` for fixed-size windows (Calculator, many utility windows).
     var isResizable: Bool {
         var settable: DarwinBoolean = false

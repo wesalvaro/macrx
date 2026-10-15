@@ -26,6 +26,8 @@ final class WindowWatcher {
     private var reconcileTimer: Timer?
 
     /// Tooltips, hover cards, popups etc. are `AXWindow`s too, but must never be managed.
+    /// Some (Chrome's tab preview card) even report a standard subrole, so `register` also
+    /// requires the window to be at the normal window level.
     private static let managedSubroles: Set<String> = [kAXStandardWindowSubrole, kAXDialogSubrole]
 
     private static let windowNotifications = [
@@ -132,7 +134,7 @@ final class WindowWatcher {
 
     private func register(_ w: AXWindow, app: AXApp) {
         guard windows[w.id] == nil, w.role == kAXWindowRole, !w.isMinimized,
-              Self.managedSubroles.contains(w.subrole) else { return }
+              Self.managedSubroles.contains(w.subrole), w.isNormalLevel else { return }
         windows[w.id] = w
         elementToID[w.element] = w.id
         if let obs = observers[app.pid] {

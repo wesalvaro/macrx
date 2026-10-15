@@ -36,9 +36,12 @@ public struct Workspace {
 
 /// Owns all workspaces and tracks which one is visible on each display.
 ///
-/// Workspaces are global (numbered 1…n), each lives on exactly one display at a time,
-/// and each display shows exactly one workspace.
+/// Workspaces are global (numbered `firstWorkspaceID`…n), each lives on exactly one display
+/// at a time, and each display shows exactly one workspace.
 public struct WorkspaceModel {
+    /// Lowest workspace number; the one auto-created for a display when nothing else is
+    /// available. Only affects workspaces created from here on (`first-workspace` in config).
+    public var firstWorkspaceID: Int
     public private(set) var displays: [Display] = []
     public private(set) var workspaces: [Int: Workspace] = [:]
     /// Visible workspace id per display.
@@ -48,7 +51,8 @@ public struct WorkspaceModel {
     /// Globally focused window (if any).
     public private(set) var focused: WindowID?
 
-    public init(displays: [Display] = []) {
+    public init(displays: [Display] = [], firstWorkspaceID: Int = 0) {
+        self.firstWorkspaceID = firstWorkspaceID
         setDisplays(displays)
     }
 
@@ -85,7 +89,7 @@ public struct WorkspaceModel {
     }
 
     private func lowestFreeWorkspaceID() -> Int {
-        var id = 1
+        var id = firstWorkspaceID
         while workspaces[id] != nil { id += 1 }
         return id
     }

@@ -11,13 +11,21 @@ import Foundation
         #expect(cfg.bindings[KeyCombo(string: "alt-j")!] == .focus(.left))
         let r1 = cfg.bindings[KeyCombo(string: "alt-shift-l")!]
         #expect(r1 == .move(.right))
+        #expect(cfg.firstWorkspace == 0)
+        #expect(cfg.bindings[KeyCombo(string: "alt-0")!] == .workspace(0))
         #expect(cfg.bindings[KeyCombo(string: "alt-3")!] == .workspace(3))
+        #expect(cfg.bindings[KeyCombo(string: "alt-shift-0")!] == .moveToWorkspace(0))
         #expect(cfg.bindings[KeyCombo(string: "alt-u")!] == .stack(-1))
         #expect(cfg.bindings[KeyCombo(string: "alt-o")!] == .stack(1))
         #expect(cfg.rules.count == 2)
         #expect(cfg.rules[1].clickToFocus)
                         #expect(cfg.rules[0].matches(appID: "com.apple.finder", title: "Copy 3 items"))
         #expect(!(cfg.rules[0].matches(appID: "com.apple.finder", title: "Documents")))
+    }
+
+    @Test func FirstWorkspaceOption() throws {
+        #expect(try Config.parse("first-workspace = 1").firstWorkspace == 1)
+        #expect(throws: ConfigError.self) { try Config.parse("first-workspace = -1") }
     }
 
     @Test func PartialConfigUsesDefaults() throws {

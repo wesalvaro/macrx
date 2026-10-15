@@ -46,7 +46,7 @@ final class WindowManager {
         self.watcher = watcher
         self.mouse = mouse
         self.tabBars = tabBars
-        self.model = WorkspaceModel(displays: displays.displays)
+        self.model = WorkspaceModel(displays: displays.displays, firstWorkspaceID: config.firstWorkspace)
 
         displays.onChange = { [weak self] d in self?.displaysChanged(d) }
         watcher.onEvent = { [weak self] e in self?.handle(e) }
@@ -71,6 +71,7 @@ final class WindowManager {
 
     func applyConfig(_ cfg: Config) {
         config = cfg
+        model.firstWorkspaceID = cfg.firstWorkspace
         tabBars.fontSize = CGFloat(cfg.tabBar.fontSize)
         tabBars.widthMode = cfg.tabBar.tabWidth
         if cfg.focusFollowsMouse { mouse.startFollowing() } else { mouse.stopFollowing() }
@@ -533,7 +534,7 @@ final class WindowManager {
 
         let wsSub = NSMenu()
         let currentWS = model.workspace(containing: w)?.id
-        for n in 1...9 {
+        for n in config.firstWorkspace..<(config.firstWorkspace + 10) {
             let count = model.workspace(n)?.allWindows.count ?? 0
             let label = count > 0 ? "Workspace \(n)  (\(count))" : "Workspace \(n)"
             let item = NSMenuItem.action(label) { [weak self] in

@@ -125,6 +125,9 @@ public struct Config: Equatable, Sendable {
     public var resizeStep: Double = 0.05
     /// Show the workspace indicator in the menu bar.
     public var menuBar = true
+    /// Number of the first workspace: the one each display starts on, and the base of the
+    /// `Workspace N` list in menus. Bindings name workspaces explicitly, so change those too.
+    public var firstWorkspace = 0
     public var tabBar = TabBarConfig()
     public var bindings: [KeyCombo: Command] = [:]
     public var rules: [Rule] = []
@@ -150,6 +153,8 @@ public struct Config: Equatable, Sendable {
         cfg.mouseFollowsFocus = raw.mouseFollowsFocus ?? true
         cfg.resizeStep = raw.resizeStep ?? 0.05
         cfg.menuBar = raw.menuBar ?? true
+        cfg.firstWorkspace = raw.firstWorkspace ?? 0
+        guard cfg.firstWorkspace >= 0 else { throw ConfigError("first-workspace must be 0 or greater") }
         cfg.tabBar = raw.tabBar ?? TabBarConfig()
         cfg.rules = raw.rule ?? []
         for (keyString, cmdString) in raw.binding ?? [:] {
@@ -169,6 +174,7 @@ public struct Config: Equatable, Sendable {
         var mouseFollowsFocus: Bool?
         var resizeStep: Double?
         var menuBar: Bool?
+        var firstWorkspace: Int?
         var tabBar: TabBarConfig?
         var binding: [String: String]?
         var rule: [Rule]?
@@ -179,6 +185,7 @@ public struct Config: Equatable, Sendable {
             mouseFollowsFocus = try c.decodeIfPresent(Bool.self, forKey: .mouseFollowsFocus)
             resizeStep = try c.decodeNumberIfPresent(forKey: .resizeStep)
             menuBar = try c.decodeIfPresent(Bool.self, forKey: .menuBar)
+            firstWorkspace = try c.decodeIfPresent(Int.self, forKey: .firstWorkspace)
             tabBar = try c.decodeIfPresent(TabBarConfig.self, forKey: .tabBar)
             binding = try c.decodeIfPresent([String: String].self, forKey: .binding)
             rule = try c.decodeIfPresent([Rule].self, forKey: .rule)
@@ -189,6 +196,7 @@ public struct Config: Equatable, Sendable {
             case mouseFollowsFocus = "mouse-follows-focus"
             case resizeStep = "resize-step"
             case menuBar = "menu-bar"
+            case firstWorkspace = "first-workspace"
             case tabBar = "tab-bar"
             case binding, rule
         }
@@ -203,6 +211,7 @@ public struct Config: Equatable, Sendable {
     mouse-follows-focus = true
     resize-step = 0.05
     menu-bar = true          # workspace indicator in the menu bar
+    first-workspace = 0      # number of the first workspace (bindings below name them explicitly)
 
     [tab-bar]
     show = "multiple"        # multiple | always | never
@@ -244,6 +253,7 @@ public struct Config: Equatable, Sendable {
     alt-ctrl-right = "move-workspace-to-display right"
 
     # Workspaces
+    alt-0 = "workspace 0"
     alt-1 = "workspace 1"
     alt-2 = "workspace 2"
     alt-3 = "workspace 3"
@@ -254,6 +264,7 @@ public struct Config: Equatable, Sendable {
     alt-8 = "workspace 8"
     alt-9 = "workspace 9"
     alt-tab = "workspace back-and-forth"
+    alt-shift-0 = "move-to-workspace 0"
     alt-shift-1 = "move-to-workspace 1"
     alt-shift-2 = "move-to-workspace 2"
     alt-shift-3 = "move-to-workspace 3"

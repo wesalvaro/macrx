@@ -12,7 +12,7 @@ A small, keyboard-driven tiling window manager for macOS, in the spirit of i3.
 - Focus moves in any direction (across displays too); the mouse follows focus and
   focus follows the mouse.
 - Drag a window's edge with the mouse and its tile (and the neighbouring tiles) resize to match.
-- Global workspaces `1`–`9`, each living on one display at a time; a menu bar item shows
+- Global workspaces `0`–`9` (numbering starts at `first-workspace`, default `0`), each living on one display at a time; a menu bar item shows
   each display's workspace (`2 · 5`, focused display emphasised) with a dropdown to switch.
 - Everything is configured in `~/.config/macrx/config.toml`.
 
@@ -46,9 +46,9 @@ Command Line Tools ship but SwiftPM needs a few flags to find — see the Justfi
 | `⌥ u` / `⌥ o` | previous/next window in stack |
 | `⌥⇧ ← ↓ ↑ →` | move window to the display in that direction |
 | `⌥⌃ ← ↓ ↑ →` | move the whole workspace to that display (swapping with what it shows) |
-| `⌥ 1…9` | focus workspace |
+| `⌥ 0…9` | focus workspace |
 | `⌥ ⇥` | toggle between the current and previous workspace |
-| `⌥⇧ 1…9` | move window to workspace |
+| `⌥⇧ 0…9` | move window to workspace |
 | `⌥ f` | toggle fullscreen |
 | `⌥⇧ space` | toggle floating |
 | `⌥ e` | toggle orientation of the parent split |
@@ -75,6 +75,7 @@ focus-follows-mouse = true
 mouse-follows-focus = true
 resize-step = 0.05
 menu-bar = true
+first-workspace = 0   # number of the first workspace; bindings name workspaces explicitly
 
 [tab-bar]
 show = "multiple"   # multiple | always | never

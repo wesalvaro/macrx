@@ -4,6 +4,7 @@ focus-follows-mouse = true
 mouse-follows-focus = true
 resize-step = 0.05
 menu-bar = true          # workspace indicator in the menu bar
+first-workspace = 0      # number of the first workspace (bindings below name them explicitly)
 
 [tab-bar]
 show = "multiple"        # multiple | always | never
@@ -45,6 +46,7 @@ alt-ctrl-up = "move-workspace-to-display up"
 alt-ctrl-right = "move-workspace-to-display right"
 
 # Workspaces
+alt-0 = "workspace 0"
 alt-1 = "workspace 1"
 alt-2 = "workspace 2"
 alt-3 = "workspace 3"
@@ -55,6 +57,7 @@ alt-7 = "workspace 7"
 alt-8 = "workspace 8"
 alt-9 = "workspace 9"
 alt-tab = "workspace back-and-forth"
+alt-shift-0 = "move-to-workspace 0"
 alt-shift-1 = "move-to-workspace 1"
 alt-shift-2 = "move-to-workspace 2"
 alt-shift-3 = "move-to-workspace 3"

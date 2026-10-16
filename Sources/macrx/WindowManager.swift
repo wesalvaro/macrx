@@ -20,6 +20,9 @@ final class WindowManager {
     /// Last frame we applied to each window (nil for parked windows).
     private var lastApplied: [WindowID: CGRect] = [:]
     private var parked: Set<WindowID> = []
+    /// Where each floating window sat before it was parked, so it can come back when its
+    /// workspace is shown again (tiled windows get their tile back; floating ones have no tile).
+    private var floatingFrames: [WindowID: CGRect] = [:]
     /// Currently visible tiles, with the display each belongs to.
     private var tiles: [(tile: Tile, display: DisplayID)] = []
     private var desiredFrames: [WindowID: CGRect] = [:]
@@ -240,6 +243,7 @@ final class WindowManager {
         effectiveFrames[id] = nil
         // Keep `observedMax`: if the window comes back it is the same window with the same limits.
         parked.remove(id)
+        floatingFrames[id] = nil
         applyLayout()
         if wasFocused, let r = replacement { focus(r) }
         log("- \(id)")
@@ -729,6 +733,7 @@ final class WindowManager {
         var desired: [WindowID: CGRect] = [:]
         var anchors: [WindowID: CGRect] = [:]
         var toPark: Set<WindowID> = []
+        var floatingToShow: Set<WindowID> = []
         var newTiles: [(tile: Tile, display: DisplayID)] = []
         var fullscreenDisplays: Set<DisplayID> = []
         var markers: [(LayoutEngine.SizeMarker, [Tile])] = []
@@ -742,6 +747,7 @@ final class WindowManager {
                     ws.allWindows.forEach { toPark.insert($0) }
                     continue
                 }
+                ws.floating.forEach { floatingToShow.insert($0) }
                 let ts = LayoutEngine.tiles(ws.tree, in: display.frame, tabBarHeight: tabBarHeight, maxSize: { caps[$0] })
                 for t in ts {
                     desired[t.top] = t.content
@@ -805,9 +811,21 @@ final class WindowManager {
                 parked.remove(id)
             }
         }
+        // Floating windows on a visible workspace have no tile; put parked ones back where they were.
+        for id in floatingToShow where parked.contains(id) {
+            guard let ax = axWindows[id] else { continue }
+            if let saved = floatingFrames[id] {
+                ax.setFrame(saved)
+            } else if let ws = model.workspace(containing: id), let d = model.display(ws.displayID) {
+                ax.setFrame(d.frame)
+            }
+            parked.remove(id)
+            floatingFrames[id] = nil
+        }
         for id in toPark where !parked.contains(id) {
             guard let ax = axWindows[id], let ws = model.workspace(containing: id),
                   let full = displays.fullFrames[ws.displayID] ?? model.display(ws.displayID)?.frame else { continue }
+            if ws.floating.contains(id), let f = ax.frame { floatingFrames[id] = f }
             ax.setPosition(CGPoint(x: full.maxX - 2, y: full.maxY - 2))
             parked.insert(id)
             lastApplied[id] = nil

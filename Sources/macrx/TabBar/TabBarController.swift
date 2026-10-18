@@ -11,7 +11,6 @@ final class TabBarController {
     var onDragUpdated: ((WindowID, CGPoint) -> Void)?
     var onDragEnded: ((WindowID, CGPoint) -> Void)?
     var fontSize: CGFloat = 12
-    var widthMode: TabWidthMode = .fit
 
     private var panels: [ObjectIdentifier: TabBarPanel] = [:]
     private lazy var dropPreview = DropPreviewPanel()
@@ -37,7 +36,6 @@ final class TabBarController {
             let rect = CoordinateSpace.toAppKit(tile.tabBar)
             if panel.frame != rect { panel.setFrame(rect, display: false) }
             view.fontSize = fontSize
-            view.widthMode = widthMode
             view.items = tile.windows.map(item)
             view.topID = tile.top
             view.isFocused = focused.map(tile.windows.contains) ?? false

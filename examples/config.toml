@@ -9,7 +9,6 @@ first-workspace = 0      # number of the first workspace (bindings below name th
 [tab-bar]
 show = "multiple"        # multiple | always | never
 switch-on = "hover"      # hover | click
-tab-width = "fit"        # fit | equal
 strip-app-suffix = true  # "Page - Google Chrome - Me (me@x.com)" → "Page"
 height = 26
 font-size = 12

@@ -12,7 +12,7 @@ struct TabItem: Equatable {
     }
 }
 
-/// Draws one tab per window of a stack: pill-style selected tab, hover highlight,
+/// Draws one equal-width tab per window of a stack: pill-style selected tab, hover highlight,
 /// hover-only close button (`×`), drag-to-reorder/move, and right-click context menu.
 final class TabBarView: NSView {
     var items: [TabItem] = [] { didSet { if items != oldValue { relayout() } } }
@@ -22,7 +22,6 @@ final class TabBarView: NSView {
     var draggedID: WindowID? { didSet { if draggedID != oldValue { needsDisplay = true } } }
     var isFocused = false { didSet { if isFocused != oldValue { needsDisplay = true } } }
     var fontSize: CGFloat = 12 { didSet { if fontSize != oldValue { relayout() } } }
-    var widthMode: TabWidthMode = .fit { didSet { if widthMode != oldValue { relayout() } } }
 
     var onTabClicked: ((WindowID) -> Void)?
     var onTabClosed: ((WindowID) -> Void)?
@@ -36,7 +35,6 @@ final class TabBarView: NSView {
     private let hPad: CGFloat = 10
     private let iconGap: CGFloat = 6
     private let closeSize: CGFloat = 16
-    private let minTab: CGFloat = 80
 
     private var mouseDownID: WindowID?
     private var mouseDownOnClose = false
@@ -72,18 +70,7 @@ final class TabBarView: NSView {
 
     private func relayout() {
         guard bounds.width > 0 else { return }
-        let widths: [CGFloat]
-        switch widthMode {
-        case .equal:
-            widths = TabLayout.equalWidths(count: items.count, available: bounds.width)
-        case .fit:
-            let attrs: [NSAttributedString.Key: Any] = [.font: font]
-            let natural = items.map { item -> CGFloat in
-                let text = (item.title as NSString).size(withAttributes: attrs).width
-                return hPad + (item.icon != nil ? iconSize + iconGap : 0) + ceil(text) + hPad
-            }
-            widths = TabLayout.widths(natural: natural, available: bounds.width, minWidth: minTab)
-        }
+        let widths = TabLayout.equalWidths(count: items.count, available: bounds.width)
         tabRects = TabLayout.rects(widths: widths, in: bounds)
         toolTip = nil
         removeAllToolTips()

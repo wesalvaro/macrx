@@ -31,33 +31,6 @@ public enum TitleCleaner {
 
 /// Distributes tab widths across a bar.
 public enum TabLayout {
-    /// - Parameters:
-    ///   - natural: the width each tab would like (icon + text + padding).
-    ///   - available: the bar width.
-    ///   - minWidth: per-tab floor.
-    /// Behaviour: tabs always fill the bar. Spare room is split evenly between them; if there
-    /// isn't enough room they shrink proportionally down to `min`, and if even that doesn't
-    /// fit the bar is split equally.
-    public static func widths(natural: [CGFloat], available: CGFloat, minWidth: CGFloat) -> [CGFloat] {
-        let n = natural.count
-        guard n > 0, available > 0 else { return [] }
-        let minW = min(minWidth, available / CGFloat(n))
-        var w = natural.map { max($0, minW) }
-        var total = w.reduce(0, +)
-        if total < available {
-            let share = (available - total) / CGFloat(n)
-            w = w.map { $0 + share }
-        } else if total > available {
-            let scale = available / total
-            w = w.map { max(minW, $0 * scale) }
-            total = w.reduce(0, +)
-            if total > available + 0.5 {
-                w = Array(repeating: available / CGFloat(n), count: n)
-            }
-        }
-        return w.map { $0.rounded() }
-    }
-
     /// Converts widths into x-offsets/rects laid out left to right from `origin`.
     public static func rects(widths: [CGFloat], in bar: CGRect) -> [CGRect] {
         var x = bar.minX
@@ -67,7 +40,7 @@ public enum TabLayout {
         }
     }
 
-    /// Equal split, used for `tab-width = "equal"`.
+    /// Tabs share the bar equally.
     public static func equalWidths(count: Int, available: CGFloat) -> [CGFloat] {
         guard count > 0 else { return [] }
         return Array(repeating: available / CGFloat(count), count: count)

@@ -16,19 +16,11 @@ public enum TabSwitchMode: String, Codable, Sendable {
     case click
 }
 
-public enum TabWidthMode: String, Codable, Sendable {
-    /// Tabs are sized to their content (clamped), sharing spare room.
-    case fit
-    /// All tabs share the bar equally.
-    case equal
-}
-
 public struct TabBarConfig: Codable, Equatable, Sendable {
     public var show: TabBarVisibility = .multiple
     public var height: Double = 26
     public var fontSize: Double = 12
     public var switchOn: TabSwitchMode = .hover
-    public var tabWidth: TabWidthMode = .fit
     public var stripAppSuffix = true
 
     public init() {}
@@ -37,7 +29,6 @@ public struct TabBarConfig: Codable, Equatable, Sendable {
         case show, height
         case fontSize = "font-size"
         case switchOn = "switch-on"
-        case tabWidth = "tab-width"
         case stripAppSuffix = "strip-app-suffix"
     }
 
@@ -47,7 +38,6 @@ public struct TabBarConfig: Codable, Equatable, Sendable {
         height = try c.decodeNumberIfPresent(forKey: .height) ?? 26
         fontSize = try c.decodeNumberIfPresent(forKey: .fontSize) ?? 12
         switchOn = try c.decodeIfPresent(TabSwitchMode.self, forKey: .switchOn) ?? .hover
-        tabWidth = try c.decodeIfPresent(TabWidthMode.self, forKey: .tabWidth) ?? .fit
         stripAppSuffix = try c.decodeIfPresent(Bool.self, forKey: .stripAppSuffix) ?? true
     }
 
@@ -216,7 +206,6 @@ public struct Config: Equatable, Sendable {
     [tab-bar]
     show = "multiple"        # multiple | always | never
     switch-on = "hover"      # hover | click
-    tab-width = "fit"        # fit | equal
     strip-app-suffix = true  # "Page - Google Chrome - Me (me@x.com)" → "Page"
     height = 26
     font-size = 12

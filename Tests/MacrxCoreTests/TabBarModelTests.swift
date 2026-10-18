@@ -24,21 +24,9 @@ import Foundation
 }
 
 @Suite struct TabLayoutTests {
-    @Test func fillsBarEvenly() {
-        let w = TabLayout.widths(natural: [100, 100], available: 1000, minWidth: 80)
-        #expect(w == [500, 500])
-        let w2 = TabLayout.widths(natural: [100, 200], available: 400, minWidth: 80)
-        #expect(w2 == [150, 250])
-    }
-    @Test func shrinksProportionallyDownToMin() {
-        let w = TabLayout.widths(natural: [200, 400], available: 300, minWidth: 80)
-        #expect(w.reduce(0, +) <= 301)
-        #expect(w[0] < w[1])
-        #expect(w.allSatisfy { $0 >= 80 })
-    }
-    @Test func fallsBackToEqualSplitWhenEvenMinDoesNotFit() {
-        let w = TabLayout.widths(natural: [300, 300, 300, 300], available: 200, minWidth: 80)
-        #expect(w == [50, 50, 50, 50])
+    @Test func equalWidthsSplitTheBar() {
+        #expect(TabLayout.equalWidths(count: 4, available: 1000) == [250, 250, 250, 250])
+        #expect(TabLayout.equalWidths(count: 0, available: 1000).isEmpty)
     }
     @Test func rectsAreContiguous() {
         let r = TabLayout.rects(widths: [100, 50], in: CGRect(x: 10, y: 0, width: 150, height: 26))

@@ -82,7 +82,6 @@ final class WindowManager {
         config = cfg
         model.firstWorkspaceID = cfg.firstWorkspace
         tabBars.fontSize = CGFloat(cfg.tabBar.fontSize)
-        tabBars.widthMode = cfg.tabBar.tabWidth
         if cfg.focusFollowsMouse { mouse.startFollowing() } else { mouse.stopFollowing() }
         statusBar.isShown = cfg.menuBar
         applyLayout()

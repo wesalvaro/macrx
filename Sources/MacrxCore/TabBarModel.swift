@@ -34,32 +34,19 @@ public enum TabLayout {
     /// - Parameters:
     ///   - natural: the width each tab would like (icon + text + padding).
     ///   - available: the bar width.
-    ///   - minWidth / maxWidth: per-tab clamps.
-    /// Behaviour: clamp to `[min, max]`; if there is spare room, grow tabs evenly up to `max`;
-    /// if there isn't enough room, shrink proportionally down to `min`; if even that doesn't
-    /// fit, split the bar equally.
-    public static func widths(natural: [CGFloat], available: CGFloat, minWidth: CGFloat, maxWidth: CGFloat) -> [CGFloat] {
+    ///   - minWidth: per-tab floor.
+    /// Behaviour: tabs always fill the bar. Spare room is split evenly between them; if there
+    /// isn't enough room they shrink proportionally down to `min`, and if even that doesn't
+    /// fit the bar is split equally.
+    public static func widths(natural: [CGFloat], available: CGFloat, minWidth: CGFloat) -> [CGFloat] {
         let n = natural.count
         guard n > 0, available > 0 else { return [] }
         let minW = min(minWidth, available / CGFloat(n))
-        var w = natural.map { min(max($0, minW), maxWidth) }
+        var w = natural.map { max($0, minW) }
         var total = w.reduce(0, +)
         if total < available {
-            // Grow evenly, respecting maxWidth, until the bar is full or everything is at max.
-            var growable = w.indices.filter { w[$0] < maxWidth }
-            var spare = available - total
-            while spare > 0.5, !growable.isEmpty {
-                let share = spare / CGFloat(growable.count)
-                var used: CGFloat = 0
-                for i in growable {
-                    let add = min(share, maxWidth - w[i])
-                    w[i] += add
-                    used += add
-                }
-                spare -= used
-                growable = growable.filter { w[$0] < maxWidth - 0.5 }
-                if used < 0.5 { break }
-            }
+            let share = (available - total) / CGFloat(n)
+            w = w.map { $0 + share }
         } else if total > available {
             let scale = available / total
             w = w.map { max(minW, $0 * scale) }

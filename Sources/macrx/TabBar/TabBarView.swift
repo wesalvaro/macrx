@@ -37,7 +37,6 @@ final class TabBarView: NSView {
     private let iconGap: CGFloat = 6
     private let closeSize: CGFloat = 16
     private let minTab: CGFloat = 80
-    private let maxTab: CGFloat = 280
 
     private var mouseDownID: WindowID?
     private var mouseDownOnClose = false
@@ -83,7 +82,7 @@ final class TabBarView: NSView {
                 let text = (item.title as NSString).size(withAttributes: attrs).width
                 return hPad + (item.icon != nil ? iconSize + iconGap : 0) + ceil(text) + hPad
             }
-            widths = TabLayout.widths(natural: natural, available: bounds.width, minWidth: minTab, maxWidth: maxTab)
+            widths = TabLayout.widths(natural: natural, available: bounds.width, minWidth: minTab)
         }
         tabRects = TabLayout.rects(widths: widths, in: bounds)
         toolTip = nil

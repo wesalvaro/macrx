@@ -4,7 +4,7 @@ A small, keyboard-driven tiling window manager for macOS, in the spirit of i3.
 
 - Windows fill the display. New windows open **on top of** the focused one (a *stack*).
 - Stacks with 2+ windows get a macrx-drawn **tab bar**: app icon + cleaned title per window,
-  content-sized tabs, accent pill on the focused stack, hover to switch, a hover `×` close
+  content-sized tabs that always fill the bar, accent pill on the focused stack, hover to switch, a hover `×` close
   button (plus middle-click to close), drag-and-drop to reorder tabs or split/join tiles, and
   a right-click context menu to move or close tabs.
 - A single **move** command walks a window out of a stack, into a neighbor's stack,

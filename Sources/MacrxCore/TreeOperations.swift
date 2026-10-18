@@ -282,6 +282,19 @@ extension Tree {
         return changed
     }
 
+    /// Returns exactly one node (identified by `id`) to flexible sizing.
+    @discardableResult
+    public mutating func resetSize(nodeID id: ObjectIdentifier) -> Bool {
+        func find(_ n: Node) -> Node? {
+            if n.id == id { return n }
+            for c in n.children { if let f = find(c) { return f } }
+            return nil
+        }
+        guard let r = root, let n = find(r), n.size != .default else { return false }
+        n.size = .default
+        return true
+    }
+
     // MARK: Orientation
 
     /// Toggles the orientation of the split directly containing `w`'s stack. Fixed sizes along

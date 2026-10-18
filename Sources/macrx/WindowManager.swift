@@ -12,6 +12,7 @@ final class WindowManager {
     private let mouse: MouseController
     private let tabBars: TabBarController
     private let statusBar = StatusBar()
+    private let sizeBadges = SizeBadgeController()
 
     private var axWindows: [WindowID: AXWindow] = [:]
     private var titles: [WindowID: String] = [:]
@@ -78,6 +79,8 @@ final class WindowManager {
         tabBars.menuForTab = { [weak self] w in self?.buildTabMenu(for: w) }
         tabBars.onDragUpdated = { [weak self] w, p in self?.tabDragUpdated(w, at: p) }
         tabBars.onDragEnded = { [weak self] w, p in self?.tabDragEnded(w, at: p) }
+        tabBars.onResetSize = { [weak self] id in self?.resetSize(nodeID: id) }
+        sizeBadges.onResetSize = { [weak self] id in self?.resetSize(nodeID: id) }
         statusBar.onSelectWorkspace = { [weak self] n in self?.perform(.workspace(n)) }
         statusBar.onReload = { [weak self] in self?.onReload?() }
         statusBar.onQuit = { [weak self] in self?.onQuit?() }
@@ -289,6 +292,7 @@ final class WindowManager {
             ax.raise()
             self.raiseStackTops()
             self.tabBars.bringToFront()
+            self.sizeBadges.bringToFront()
         }
         // Some apps (GLFW-based like kitty) ignore every programmatic key-window switch within
         // the app. For apps opted in via a `click-to-focus` rule, click the title bar if needed.
@@ -365,6 +369,7 @@ final class WindowManager {
         if tabBars.frames.values.contains(where: { $0.contains(p) }) {
             let hit = tabBars.tab(at: p)
             tabBars.setHovered(hit?.window, closeHovered: hit?.onClose ?? false)
+            tabBars.setBadgeHover(at: p)
             if config.tabBar.switchOn == .hover, let hit, !hit.onClose,
                let tile = tiles.first(where: { $0.tile.stackID == hit.stack })?.tile,
                hit.window != tile.top {
@@ -373,6 +378,7 @@ final class WindowManager {
             return
         }
         tabBars.setHovered(nil)
+        tabBars.setBadgeHover(at: p)
         // Respect the real z-order: a floating / dialog / unmanaged window over a tile wins.
         // Only actual window content counts — the desktop does nothing.
         guard let topmost = Self.topmostWindow(at: p), axWindows[topmost] != nil else { return }
@@ -518,6 +524,19 @@ final class WindowManager {
 
     // MARK: - Tab bar controls (close, drag, context menu)
 
+    /// A size badge was clicked: make that node flexible again.
+    private func resetSize(nodeID: ObjectIdentifier) {
+        for ws in model.visibleWorkspaces {
+            var changed = false
+            model.update(ws.id) { changed = $0.tree.resetSize(nodeID: nodeID) }
+            if changed {
+                log("size badge: reset node to flex")
+                applyLayout()
+                return
+            }
+        }
+    }
+
     private func closeWindow(_ id: WindowID) {
         guard let ax = axWindows[id] else { return }
         log("close tab \(id)")
@@ -657,6 +676,7 @@ final class WindowManager {
         var toPark: Set<WindowID> = []
         var newTiles: [(tile: Tile, display: DisplayID)] = []
         var fullscreenDisplays: Set<DisplayID> = []
+        var markers: [(LayoutEngine.SizeMarker, [Tile])] = []
         let caps = observedMax
 
         let activePid = model.focused?.pid
@@ -685,13 +705,37 @@ final class WindowManager {
                 if let fs = ws.fullscreen, ws.contains(fs) {
                     desired[fs] = display.frame
                     fullscreenDisplays.insert(display.id)
+                } else {
+                    markers += LayoutEngine.sizeMarkers(ws.tree, in: display.frame, tabBarHeight: tabBarHeight, maxSize: { caps[$0] })
+                        .map { ($0, ts) }
                 }
             }
         }
         tiles = newTiles
         desiredFrames = desired
-        // Tab bars first: constrained windows are anchored under their (content-sized) tabs.
-        syncTabBars(excluding: fullscreenDisplays)
+        // Size badges: hosted by the tab bar of the tile at the node's top-right corner when it
+        // has one, otherwise by a small floating badge in that corner.
+        var barBadges: [ObjectIdentifier: [SizeBadge]] = [:]
+        var floating: [ObjectIdentifier: (corner: CGPoint, badges: [SizeBadge])] = [:]
+        var kindsByNode: [ObjectIdentifier: (frame: CGRect, kinds: [LayoutEngine.SizeMarkerKind], tiles: [Tile])] = [:]
+        for (m, ts) in markers {
+            var e = kindsByNode[m.nodeID] ?? (m.frame, [], ts)
+            e.kinds.append(m.kind)
+            kindsByNode[m.nodeID] = e
+        }
+        for (nodeID, e) in kindsByNode {
+            let badges = SizeBadge.badges(for: e.kinds, nodeID: nodeID)
+            let corner = CGPoint(x: e.frame.maxX, y: e.frame.minY)
+            let host = e.tiles.first { abs($0.frame.maxX - corner.x) < 1 && abs($0.frame.minY - corner.y) < 1 }
+            if let host, host.hasTabBar {
+                barBadges[host.stackID, default: []] += badges
+            } else {
+                floating[nodeID] = (corner, badges)
+            }
+        }
+        // Tab bars first: constrained windows are anchored under their tabs.
+        syncTabBars(excluding: fullscreenDisplays, badges: barBadges)
+        sizeBadges.sync(floating)
         for id in desired.keys { if let a = tabBars.anchor(for: id) { anchors[id] = a } }
         let previousAnchors = tabAnchors
         tabAnchors = anchors
@@ -754,9 +798,9 @@ final class WindowManager {
         }
     }
 
-    private func syncTabBars(excluding fullscreenDisplays: Set<DisplayID> = []) {
+    private func syncTabBars(excluding fullscreenDisplays: Set<DisplayID> = [], badges: [ObjectIdentifier: [SizeBadge]] = [:]) {
         let visibleTiles = tiles.filter { !fullscreenDisplays.contains($0.display) }.map(\.tile)
-        tabBars.sync(tiles: visibleTiles, focused: model.focused) { [self] id in
+        tabBars.sync(tiles: visibleTiles, focused: model.focused, badges: badges) { [self] id in
             let app = watcher.app(for: id.pid)
             let full = titles[id] ?? ""
             let label = config.tabBar.stripAppSuffix ? TitleCleaner.clean(full, appName: app?.name) : (full.isEmpty ? (app?.name ?? "Untitled") : full)
@@ -879,6 +923,7 @@ final class WindowManager {
     /// The layout is saved first so the next launch can put everything back.
     func restoreParkedWindows() {
         store.saveNow(model.snapshot(bootTime: LayoutStore.bootTime))
+        sizeBadges.hideAll()
         for id in parked {
             guard let ax = axWindows[id], let ws = model.workspace(containing: id),
                   let d = model.display(ws.displayID) else { continue }

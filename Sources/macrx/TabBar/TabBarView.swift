@@ -28,6 +28,12 @@ final class TabBarView: NSView {
     var menuForTab: ((WindowID) -> NSMenu?)?
     var onDragUpdated: ((WindowID, CGPoint) -> Void)?
     var onDragEnded: ((WindowID, CGPoint) -> Void)?
+    var onResetSize: ((ObjectIdentifier) -> Void)?
+
+    /// Size badges hosted at the right end of the bar (tabs make room for them).
+    var badges: [SizeBadge] = [] { didSet { if badges != oldValue { relayout() } } }
+    var badgeHovered: Int? { didSet { if badgeHovered != oldValue { needsDisplay = true } } }
+    private(set) var badgeRects: [CGRect] = []
 
     /// Tab rects in view coordinates (origin top-left, left → right).
     private(set) var tabRects: [CGRect] = []
@@ -70,11 +76,15 @@ final class TabBarView: NSView {
 
     private func relayout() {
         guard bounds.width > 0 else { return }
-        let widths = TabLayout.equalWidths(count: items.count, available: bounds.width)
-        tabRects = TabLayout.rects(widths: widths, in: bounds)
+        badgeRects = SizeBadgeDrawer.rects(for: badges, in: bounds, trailingPad: 4)
+        let reserved = badges.isEmpty ? 0 : SizeBadge.width * CGFloat(badges.count) + 6
+        let tabArea = CGRect(x: 0, y: 0, width: max(0, bounds.width - reserved), height: bounds.height)
+        let widths = TabLayout.equalWidths(count: items.count, available: tabArea.width)
+        tabRects = TabLayout.rects(widths: widths, in: tabArea)
         toolTip = nil
         removeAllToolTips()
         for (i, r) in tabRects.enumerated() { addToolTip(r, owner: items[i].fullTitle as NSString, userData: nil) }
+        for (i, r) in badgeRects.enumerated() { addToolTip(r, owner: badges[i].tooltip as NSString, userData: nil) }
         needsDisplay = true
     }
 
@@ -147,10 +157,15 @@ final class TabBarView: NSView {
 
         NSColor.separatorColor.setFill()
         CGRect(x: 0, y: bounds.height - 1, width: bounds.width, height: 1).fill()
+        SizeBadgeDrawer.draw(badges, rects: badgeRects, hovered: badgeHovered)
     }
 
     func tab(at viewPoint: CGPoint) -> WindowID? {
         tabRects.firstIndex { $0.contains(viewPoint) }.map { items[$0].id }
+    }
+
+    func badge(at viewPoint: CGPoint) -> Int? {
+        badgeRects.firstIndex { $0.contains(viewPoint) }
     }
 
     func closeButton(at viewPoint: CGPoint) -> WindowID? {
@@ -162,11 +177,13 @@ final class TabBarView: NSView {
         let pt = convert(event.locationInWindow, from: nil)
         hoveredID = tab(at: pt)
         closeHovered = closeButton(at: pt) != nil
+        badgeHovered = badge(at: pt)
     }
 
     override func mouseExited(with event: NSEvent) {
         hoveredID = nil
         closeHovered = false
+        badgeHovered = nil
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -175,6 +192,10 @@ final class TabBarView: NSView {
             return
         }
         let pt = convert(event.locationInWindow, from: nil)
+        if let i = badge(at: pt) {
+            if let id = badges[i].resetsNode { onResetSize?(id) }
+            return
+        }
         guard let id = tab(at: pt) else { return }
         mouseDownID = id
         mouseDownPoint = pt

@@ -150,6 +150,49 @@ public enum LayoutEngine {
         if case .flex(let w) = s { return w } else { return 0 }
     }
 
+    // MARK: Size markers
+
+    /// Why a node is not simply sharing space: the user fixed it, or its app(s) cap it.
+    public enum SizeMarkerKind: Equatable {
+        case fixed(axis: Orientation, points: CGFloat)
+        case capped(width: CGFloat?, height: CGFloat?)
+    }
+
+    public struct SizeMarker: Equatable {
+        public let nodeID: ObjectIdentifier
+        /// Laid-out frame of the node (for a stack: the whole tile including its tab bar).
+        public let frame: CGRect
+        public let kind: SizeMarkerKind
+    }
+
+    /// Fixed nodes under a split, plus stacks that are auto-capped along at least one axis.
+    public static func sizeMarkers(
+        _ tree: Tree, in rect: CGRect,
+        tabBarHeight: @escaping TabBarHeight = { _ in 0 },
+        maxSize: @escaping MaxSize = { _ in nil }
+    ) -> [SizeMarker] {
+        guard let root = tree.root else { return [] }
+        let ctx = Context(tabBarHeight: tabBarHeight, maxSize: maxSize)
+        let frames = nodeFrames(tree, in: rect, tabBarHeight: tabBarHeight, maxSize: maxSize)
+        var out: [SizeMarker] = []
+        func walk(_ node: Node) {
+            if let p = node.parent, let o = p.orientation, case .fixed(let pts) = node.size, let f = frames[node.id] {
+                out.append(SizeMarker(nodeID: node.id, frame: f, kind: .fixed(axis: o, points: pts)))
+            }
+            if node.isStack, let f = frames[node.id] {
+                let w = maxExtent(node, .horizontal, ctx: ctx)
+                let hTotal = maxExtent(node, .vertical, ctx: ctx)
+                let h = hTotal.map { $0 - max(0, tabBarHeight(node.windows.count)) }
+                if w != nil || h != nil {
+                    out.append(SizeMarker(nodeID: node.id, frame: f, kind: .capped(width: w, height: h)))
+                }
+            }
+            for c in node.children { walk(c) }
+        }
+        walk(root)
+        return out
+    }
+
     /// Frame of every node (splits and stacks) when `tree` is laid out in `rect`.
     public static func nodeFrames(
         _ tree: Tree, in rect: CGRect,

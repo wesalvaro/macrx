@@ -158,3 +158,55 @@ let screen = CGRect(x: 0, y: 0, width: 1000, height: 800)
         #expect(r == [200, 350, 450])
     }
 }
+
+@Suite struct SizeMarkerTests {
+    private func caps(_ m: [UInt32: CGSize]) -> LayoutEngine.MaxSize { { m[$0.cgID] } }
+
+    @Test func fixedChildIsMarkedWithItsFrame() {
+        let a = Node(stack: [w(1)]); a.size = .fixed(600)
+        let t = Tree(root: Node(split: .horizontal, children: [a, Node(stack: [w(2)])]))
+        let m = LayoutEngine.sizeMarkers(t, in: screen)
+        #expect(m.count == 1)
+        #expect(m[0].nodeID == a.id)
+        #expect(m[0].frame == CGRect(x: 0, y: 0, width: 600, height: 800))
+        #expect(m[0].kind == .fixed(axis: .horizontal, points: 600))
+    }
+
+    @Test func nestedFixedColumnUsesWholeColumnFrame() {
+        let col = Node(split: .vertical, children: [Node(stack: [w(2)]), Node(stack: [w(3)])]); col.size = .fixed(300)
+        let t = Tree(root: Node(split: .horizontal, children: [Node(stack: [w(1)]), col]))
+        let m = LayoutEngine.sizeMarkers(t, in: screen)
+        #expect(m.map(\.nodeID) == [col.id])
+        #expect(m[0].frame == CGRect(x: 700, y: 0, width: 300, height: 800))
+    }
+
+    @Test func cappedStackIsMarkedPerAxis() {
+        let s = Node(stack: [w(2)])
+        let t = Tree(root: Node(split: .horizontal, children: [Node(stack: [w(1)]), s]))
+        let settings = LayoutEngine.sizeMarkers(t, in: screen, maxSize: caps([2: CGSize(width: 723, height: CGFloat.infinity)]))
+        #expect(settings.count == 1)
+        #expect(settings[0].kind == .capped(width: 723, height: nil))
+        let calc = LayoutEngine.sizeMarkers(t, in: screen, tabBarHeight: { _ in 26 }, maxSize: caps([2: CGSize(width: 230, height: 408)]))
+        #expect(calc[0].kind == .capped(width: 230, height: 408))   // tab bar excluded from the reported height
+    }
+
+    @Test func mixedStackAndRootAreNotMarked() {
+        let s = Node(stack: [w(1), w(2)])
+        let t = Tree(root: s)
+        s.size = .fixed(100)   // root: never marked
+        let m = LayoutEngine.sizeMarkers(t, in: screen, maxSize: caps([1: CGSize(width: 200, height: 200)]))
+        #expect(m.isEmpty)
+    }
+
+    @Test func resetSizeByNodeIDTouchesOnlyThatNode() {
+        let a = Node(stack: [w(1)]); a.size = .fixed(600)
+        let b = Node(stack: [w(2)]); b.size = .fixed(200)
+        var t = Tree(root: Node(split: .horizontal, children: [a, b]))
+        let r = t.resetSize(nodeID: a.id)
+        #expect(r)
+        #expect(a.size == .default)
+        #expect(b.size == .fixed(200))
+        let again = t.resetSize(nodeID: a.id)
+        #expect(!again)
+    }
+}

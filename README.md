@@ -76,12 +76,15 @@ So with `[A][B][C]`, pressing `move left` twice on B gives `[B][A][C]`.
 Tiles in a split are **flexible** by default and share the space equally. Resizing a tile
 (keyboard or dragging its edge) gives it a **fixed** size; the remaining flexible tiles share
 what is left. `resize reset` makes a tile flexible again, and toggling a split's orientation
-resets its children (a fixed width rarely makes sense as a height).
+resets its children (a fixed width rarely makes sense as a height). A fixed tile shows a small
+**lock** in its top-right corner (in the tab bar if it has one) — click it to make the tile
+flexible again.
 
 Apps that refuse to grow past a certain size (System Settings, Calculator…) are measured as they
 are placed. When *every* window in a tile is capped along an axis, the tile shrinks to the largest
-cap and its neighbours take the freed space — so no desktop shows through. As soon as an
-unconstrained window joins that tile (or a new one opens there), it springs back to full size.
+cap and its neighbours take the freed space — so no desktop shows through. Such a tile shows
+`↔`, `↕` or a four-way arrow for the axes the app limits. As soon as an unconstrained window
+joins that tile (or a new one opens there), it springs back to full size.
 
 The opposite case is deliberately *not* handled: a window whose **minimum** size is larger than
 its share is simply crammed in (it overflows its tile, stays focusable and comes to the front

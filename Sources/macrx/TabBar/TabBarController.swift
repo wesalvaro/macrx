@@ -10,6 +10,7 @@ final class TabBarController {
     var menuForTab: ((WindowID) -> NSMenu?)?
     var onDragUpdated: ((WindowID, CGPoint) -> Void)?
     var onDragEnded: ((WindowID, CGPoint) -> Void)?
+    var onResetSize: ((ObjectIdentifier) -> Void)?
     var fontSize: CGFloat = 12
 
     private var panels: [ObjectIdentifier: TabBarPanel] = [:]
@@ -21,13 +22,16 @@ final class TabBarController {
     private(set) var tabRects: [ObjectIdentifier: [CGRect]] = [:]
     /// Per-stack close-button rects (AX coordinates), in window order.
     private(set) var closeRects: [ObjectIdentifier: [CGRect]] = [:]
+    /// Per-stack size-badge rects (AX coordinates).
+    private(set) var badgeRects: [ObjectIdentifier: [CGRect]] = [:]
     private var tabWindows: [ObjectIdentifier: [WindowID]] = [:]
 
-    func sync(tiles: [Tile], focused: WindowID?, item: (WindowID) -> TabItem) {
+    func sync(tiles: [Tile], focused: WindowID?, badges: [ObjectIdentifier: [SizeBadge]] = [:], item: (WindowID) -> TabItem) {
         var seen: Set<ObjectIdentifier> = []
         frames.removeAll(keepingCapacity: true)
         tabRects.removeAll(keepingCapacity: true)
         closeRects.removeAll(keepingCapacity: true)
+        badgeRects.removeAll(keepingCapacity: true)
         tabWindows.removeAll(keepingCapacity: true)
         for tile in tiles where tile.hasTabBar {
             seen.insert(tile.stackID)
@@ -39,6 +43,7 @@ final class TabBarController {
             view.items = tile.windows.map(item)
             view.topID = tile.top
             view.isFocused = focused.map(tile.windows.contains) ?? false
+            view.badges = badges[tile.stackID] ?? []
             view.layoutSubtreeIfNeeded()
             frames[tile.stackID] = tile.tabBar
             tabRects[tile.stackID] = view.tabRects.map {
@@ -47,6 +52,9 @@ final class TabBarController {
             closeRects[tile.stackID] = view.tabRects.map {
                 let cr = view.closeRect(for: $0)
                 return CGRect(x: tile.tabBar.minX + cr.minX, y: tile.tabBar.minY + cr.minY, width: cr.width, height: cr.height)
+            }
+            badgeRects[tile.stackID] = view.badgeRects.map {
+                CGRect(x: tile.tabBar.minX + $0.minX, y: tile.tabBar.minY + $0.minY, width: $0.width, height: $0.height)
             }
             tabWindows[tile.stackID] = tile.windows
             if !panel.isVisible { panel.orderFrontRegardless() }
@@ -87,6 +95,13 @@ final class TabBarController {
         }
     }
 
+    /// Updates badge hover state for the pointer at `p` (AX coordinates).
+    func setBadgeHover(at p: CGPoint) {
+        for (stack, panel) in panels {
+            panel.tabView.badgeHovered = badgeRects[stack]?.firstIndex { $0.contains(p) }
+        }
+    }
+
     func setFocused(_ focused: WindowID?) {
         for panel in panels.values {
             panel.tabView.isFocused = focused.map(panel.tabView.items.map(\.id).contains) ?? false
@@ -116,6 +131,7 @@ final class TabBarController {
         frames.removeAll()
         tabRects.removeAll()
         closeRects.removeAll()
+        badgeRects.removeAll()
         tabWindows.removeAll()
     }
 
@@ -126,6 +142,7 @@ final class TabBarController {
         p.tabView.menuForTab = { [weak self] w in self?.menuForTab?(w) }
         p.tabView.onDragUpdated = { [weak self] w, pt in self?.onDragUpdated?(w, pt) }
         p.tabView.onDragEnded = { [weak self] w, pt in self?.onDragEnded?(w, pt) }
+        p.tabView.onResetSize = { [weak self] id in self?.onResetSize?(id) }
         panels[id] = p
         return p
     }

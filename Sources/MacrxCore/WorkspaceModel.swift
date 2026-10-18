@@ -179,6 +179,23 @@ public struct WorkspaceModel {
         }
     }
 
+    /// Adds `w` to workspace `id` (creating it on the focused display if needed), stacked on
+    /// `near` when that window is still there, else on the workspace's focused window.
+    /// Does not change focus or visibility — used to put a returning window back in place.
+    public mutating func add(_ w: WindowID, toWorkspace id: Int, near: WindowID? = nil, floating: Bool = false) {
+        guard workspace(containing: w) == nil else { return }
+        if workspaces[id] == nil {
+            guard let d = focusedDisplay ?? primaryDisplay?.id else { return }
+            workspaces[id] = Workspace(id: id, displayID: d)
+        }
+        if floating {
+            workspaces[id]!.floating.insert(w)
+            return
+        }
+        let anchor = near.flatMap { workspaces[id]!.tree.contains($0) ? $0 : nil } ?? workspaces[id]!.focused
+        workspaces[id]!.tree.insert(w, near: anchor)
+    }
+
     /// Removes a window from wherever it is. Returns a suggested replacement focus
     /// if the removed window was focused.
     @discardableResult

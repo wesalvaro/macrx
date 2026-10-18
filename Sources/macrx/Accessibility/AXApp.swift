@@ -24,6 +24,14 @@ struct AXApp {
         return elements.compactMap(AXWindow.init(element:))
     }
 
+    /// `nil` when the app did not answer (asleep / hung / busy); `[]` only when it really has
+    /// no windows. Use this wherever "no windows" would trigger destructive bookkeeping.
+    var windowsIfResponsive: [AXWindow]? {
+        guard case .success(let elements) = element.attributeResult(kAXWindowsAttribute, as: [AXUIElement].self)
+        else { return nil }
+        return (elements ?? []).compactMap(AXWindow.init(element:))
+    }
+
     var focusedWindow: AXWindow? {
         guard let e: AXUIElement = element.attribute(kAXFocusedWindowAttribute) else { return nil }
         return AXWindow(element: e)

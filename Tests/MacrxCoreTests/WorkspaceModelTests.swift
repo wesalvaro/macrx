@@ -25,6 +25,34 @@ import Foundation
         #expect(m.visibleWorkspace(on: d3.id)?.id == 10)
     }
 
+    @Test func AddToWorkspaceRestoresPlacement() {
+        var m = WorkspaceModel(displays: [d1])
+        // Workspace 1: w1 and w2 stacked; then switch to workspace 0 with w3 focused.
+        m.focusWorkspace(1)
+        m.add(w(1)); m.setFocused(w(1))
+        m.add(w(2)); m.setFocused(w(2))
+        m.focusWorkspace(0)
+        m.add(w(3)); m.setFocused(w(3))
+        // w2 vanishes (AX hiccup) and comes back: it must return to workspace 1 next to w1,
+        // without touching the visible workspace or focus.
+        m.remove(w(2))
+        m.add(w(2), toWorkspace: 1, near: w(1))
+        #expect(m.workspace(containing: w(2))?.id == 1)
+        #expect(m.workspace(1)!.tree.stack(containing: w(1))?.windows.contains(w(2)) == true)
+        #expect(m.visibleWorkspace(on: d1.id)?.id == 0)
+        #expect(m.focused == w(3))
+    }
+
+    @Test func AddToWorkspaceCreatesMissingWorkspace() {
+        var m = WorkspaceModel(displays: [d1])
+        m.add(w(1)); m.setFocused(w(1))
+        #expect(m.workspace(5) == nil)
+        m.add(w(2), toWorkspace: 5, near: w(9), floating: true)
+        #expect(m.workspace(5)?.displayID == d1.id)
+        #expect(m.workspace(5)!.floating.contains(w(2)))
+        #expect(m.visibleWorkspace(on: d1.id)?.id == 0)
+    }
+
     @Test func AddStacksOnFocused() {
         var m = WorkspaceModel(displays: [d1])
         m.add(w(1)); m.setFocused(w(1))

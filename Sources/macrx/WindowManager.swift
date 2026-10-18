@@ -36,6 +36,11 @@ final class WindowManager {
     private var userResizing: Set<WindowID> = []
     /// `true` while the user is dragging a tab in a tab bar.
     private var isDraggingTab = false
+    /// Where a window lived when it was removed, kept briefly so a window that is "destroyed"
+    /// and "created" again with the same ID (AX hiccup after sleep) returns to its place silently.
+    private struct Departed { let workspace: Int; let neighbour: WindowID?; let floating: Bool; let at: Date }
+    private var departed: [WindowID: Departed] = [:]
+    private let departedTTL: TimeInterval = 120
 
     var onQuit: (() -> Void)?
     var onReload: (() -> Void)?
@@ -109,6 +114,16 @@ final class WindowManager {
 
     private func windowCreated(_ w: AXWindow, app: AXApp) {
         guard axWindows[w.id] == nil, !ignored.contains(w.id) else { return }
+        departed = departed.filter { Date().timeIntervalSince($0.value.at) < departedTTL }
+        if let d = departed.removeValue(forKey: w.id) {
+            // Returning window: back to its old workspace/stack, no focus change, no pointer warp.
+            axWindows[w.id] = w
+            titles[w.id] = w.title
+            model.add(w.id, toWorkspace: d.workspace, near: d.neighbour, floating: d.floating)
+            applyLayout()
+            log("↩ \(app.name) '\(w.title)' \(w.id) back to workspace \(d.workspace)")
+            return
+        }
         switch rules.disposition(for: w, bundleID: app.bundleID) {
         case .ignore:
             ignored.insert(w.id)
@@ -130,6 +145,10 @@ final class WindowManager {
     private func windowDestroyed(_ id: WindowID) {
         ignored.remove(id)
         guard axWindows[id] != nil else { return }
+        if let ws = model.workspace(containing: id) {
+            let neighbour = ws.tree.stack(containing: id)?.windows.first { $0 != id }
+            departed[id] = Departed(workspace: ws.id, neighbour: neighbour, floating: ws.floating.contains(id), at: Date())
+        }
         let wasFocused = model.focused == id
         let replacement = model.remove(id)
         axWindows[id] = nil

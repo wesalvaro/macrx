@@ -24,6 +24,9 @@ final class WindowWatcher {
     private var elementToID: [AXUIElement: WindowID] = [:]
     private var tokens: [NSObjectProtocol] = []
     private var reconcileTimer: Timer?
+    /// Reconciliation is paused until this date around sleep/wake, when apps answer AX slowly
+    /// (or not at all) and a naive diff would tear every window out of its workspace.
+    private var reconcileSuspendedUntil = Date.distantPast
 
     /// Tooltips, hover cards, popups etc. are `AXWindow`s too, but must never be managed.
     /// Some (Chrome's tab preview card) even report a standard subrole, so `register` also
@@ -53,6 +56,17 @@ final class WindowWatcher {
             guard let app = n.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
             MainActor.assumeIsolated { self?.appActivated(app.processIdentifier) }
         })
+        // Sleep / screen lock: stop reconciling, and give apps a few seconds after wake to respond.
+        for name in [NSWorkspace.willSleepNotification, NSWorkspace.screensDidSleepNotification, NSWorkspace.sessionDidResignActiveNotification] {
+            tokens.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.reconcileSuspendedUntil = .distantFuture }
+            })
+        }
+        for name in [NSWorkspace.didWakeNotification, NSWorkspace.screensDidWakeNotification, NSWorkspace.sessionDidBecomeActiveNotification] {
+            tokens.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.reconcileSuspendedUntil = Date().addingTimeInterval(5) }
+            })
+        }
 
         for app in NSWorkspace.shared.runningApplications {
             track(app, attempt: 0)
@@ -180,13 +194,22 @@ final class WindowWatcher {
 
     /// Diffs the AX window lists against what we know, to recover from missed notifications.
     private func reconcile() {
+        guard Date() >= reconcileSuspendedUntil else { return }
         for (pid, app) in apps {
             if app.runningApp.isTerminated { untrack(pid); continue }
-            let current = app.windows
+            // An app that doesn't answer (just woke, hung, busy) is skipped this round: treating a
+            // failed query as "no windows" used to destroy and re-create every window, which
+            // dumped them all onto the visible workspace.
+            guard let current = app.windowsIfResponsive else { continue }
             let currentIDs = Set(current.map(\.id))
             for w in current where windows[w.id] == nil { register(w, app: app) }
             for (id, w) in windows where id.pid == pid && !currentIDs.contains(id) {
-                if !w.isAlive || w.isMinimized { unregister(id) }
+                // Only drop windows that are definitely gone; "unknown" is retried next tick.
+                switch w.liveness {
+                case .dead: unregister(id)
+                case .alive: if w.isMinimized { unregister(id) }
+                case .unknown: break
+                }
             }
         }
         for running in NSWorkspace.shared.runningApplications where apps[running.processIdentifier] == nil {

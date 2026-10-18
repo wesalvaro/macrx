@@ -6,11 +6,21 @@ import MacrxCore
 @_silgen_name("_AXUIElementGetWindow")
 private func _AXUIElementGetWindow(_ element: AXUIElement, _ out: UnsafeMutablePointer<CGWindowID>) -> AXError
 
+extension AXError: @retroactive Error {}
+
 extension AXUIElement {
     func attribute<T>(_ name: String, as type: T.Type = T.self) -> T? {
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(self, name as CFString, &value) == .success else { return nil }
         return value as? T
+    }
+
+    /// Like `attribute(_:)` but reports why a read failed, so callers can tell a dead element
+    /// from an app that is merely not answering (asleep, hung, busy).
+    func attributeResult<T>(_ name: String, as type: T.Type = T.self) -> Result<T?, AXError> {
+        var value: CFTypeRef?
+        let err = AXUIElementCopyAttributeValue(self, name as CFString, &value)
+        return err == .success ? .success(value as? T) : .failure(err)
     }
 
     func setAttribute(_ name: String, _ value: CFTypeRef) -> Bool {
@@ -54,6 +64,18 @@ struct AXWindow: Hashable {
 
     /// `true` if the element is still backed by a live window.
     var isAlive: Bool { element.attribute(kAXRoleAttribute, as: String.self) != nil }
+
+    enum Liveness { case alive, dead, unknown }
+
+    /// Liveness with three outcomes. `unknown` means the app did not answer (e.g. right after
+    /// waking from sleep); callers must not treat that as "gone".
+    var liveness: Liveness {
+        switch element.attributeResult(kAXRoleAttribute, as: String.self) {
+        case .success: return .alive
+        case .failure(.invalidUIElement), .failure(.noValue): return .dead
+        case .failure: return .unknown
+        }
+    }
 
     /// `true` if the window sits at the normal document level (`kCGNormalWindowLevel`).
     /// Popups, hover cards, tooltips and HUDs live at higher levels even when their AX

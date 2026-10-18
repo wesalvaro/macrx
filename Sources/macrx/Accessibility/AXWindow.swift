@@ -62,21 +62,6 @@ struct AXWindow: Hashable {
     var isMinimized: Bool { element.attribute(kAXMinimizedAttribute) ?? false }
     var isStandard: Bool { role == kAXWindowRole && subrole == kAXStandardWindowSubrole }
 
-    /// `true` if the element is still backed by a live window.
-    var isAlive: Bool { element.attribute(kAXRoleAttribute, as: String.self) != nil }
-
-    enum Liveness { case alive, dead, unknown }
-
-    /// Liveness with three outcomes. `unknown` means the app did not answer (e.g. right after
-    /// waking from sleep); callers must not treat that as "gone".
-    var liveness: Liveness {
-        switch element.attributeResult(kAXRoleAttribute, as: String.self) {
-        case .success: return .alive
-        case .failure(.invalidUIElement), .failure(.noValue): return .dead
-        case .failure: return .unknown
-        }
-    }
-
     /// `true` if the window sits at the normal document level (`kCGNormalWindowLevel`).
     /// Popups, hover cards, tooltips and HUDs live at higher levels even when their AX
     /// subrole claims they are standard windows (e.g. Chrome's tab preview card), so this

@@ -1,5 +1,7 @@
 import AppKit
 import ApplicationServices
+import IOKit
+import IOKit.pwr_mgt
 import MacrxCore
 
 enum WindowEvent {
@@ -10,6 +12,10 @@ enum WindowEvent {
     case titleChanged(WindowID)
     /// The window was moved or resized by something other than macrx.
     case frameChanged(WindowID)
+    /// Same window, new AX element (the app's AX server handed out fresh handles, e.g. after sleep).
+    case elementChanged(AXWindow)
+    /// The app quit; sent after `.destroyed` for each of its windows.
+    case appTerminated(pid_t)
 }
 
 /// Tracks running applications and their windows via NSWorkspace + AXObserver,
@@ -27,6 +33,17 @@ final class WindowWatcher {
     /// Reconciliation is paused until this date around sleep/wake, when apps answer AX slowly
     /// (or not at all) and a naive diff would tear every window out of its workspace.
     private var reconcileSuspendedUntil = Date.distantPast
+    private var power: PowerObserver?
+
+    private func suspendReconcile(_ why: String) {
+        if reconcileSuspendedUntil != .distantFuture { log("reconcile paused: \(why)") }
+        reconcileSuspendedUntil = .distantFuture
+    }
+
+    private func resumeReconcile(_ why: String) {
+        log("reconcile resumes in 5 s: \(why)")
+        reconcileSuspendedUntil = Date().addingTimeInterval(5)
+    }
 
     /// Tooltips, hover cards, popups etc. are `AXWindow`s too, but must never be managed.
     /// Some (Chrome's tab preview card) even report a standard subrole, so `register` also
@@ -59,14 +76,18 @@ final class WindowWatcher {
         // Sleep / screen lock: stop reconciling, and give apps a few seconds after wake to respond.
         for name in [NSWorkspace.willSleepNotification, NSWorkspace.screensDidSleepNotification, NSWorkspace.sessionDidResignActiveNotification] {
             tokens.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.reconcileSuspendedUntil = .distantFuture }
+                MainActor.assumeIsolated { self?.suspendReconcile("\(name.rawValue)") }
             })
         }
         for name in [NSWorkspace.didWakeNotification, NSWorkspace.screensDidWakeNotification, NSWorkspace.sessionDidBecomeActiveNotification] {
             tokens.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.reconcileSuspendedUntil = Date().addingTimeInterval(5) }
+                MainActor.assumeIsolated { self?.resumeReconcile("\(name.rawValue)") }
             })
         }
+        // IOKit's sleep message arrives before NSWorkspace's, while apps are still answering.
+        power = PowerObserver(
+            willSleep: { [weak self] in MainActor.assumeIsolated { self?.suspendReconcile("IOKit will sleep") } },
+            didWake: { [weak self] in MainActor.assumeIsolated { self?.resumeReconcile("IOKit did wake") } })
 
         for app in NSWorkspace.shared.runningApplications {
             track(app, attempt: 0)
@@ -129,6 +150,7 @@ final class WindowWatcher {
     }
 
     private func untrack(_ pid: pid_t) {
+        guard apps[pid] != nil else { return }
         observers[pid]?.invalidate()
         observers[pid] = nil
         apps[pid] = nil
@@ -137,6 +159,7 @@ final class WindowWatcher {
             elementToID[w.element] = nil
             onEvent?(.destroyed(id))
         }
+        onEvent?(.appTerminated(pid))
     }
 
     private func appActivated(_ pid: pid_t) {
@@ -193,27 +216,95 @@ final class WindowWatcher {
     }
 
     /// Diffs the AX window lists against what we know, to recover from missed notifications.
+    /// A window's identity is its CG window number; AX elements are just handles that an app's
+    /// AX server may replace (e.g. after sleep), so a stale element is swapped, never "destroyed".
     private func reconcile() {
         guard Date() >= reconcileSuspendedUntil else { return }
         for (pid, app) in apps {
             if app.runningApp.isTerminated { untrack(pid); continue }
             // An app that doesn't answer (just woke, hung, busy) is skipped this round: treating a
-            // failed query as "no windows" used to destroy and re-create every window, which
-            // dumped them all onto the visible workspace.
+            // failed query as "no windows" would tear every window out of its workspace.
             guard let current = app.windowsIfResponsive else { continue }
-            let currentIDs = Set(current.map(\.id))
-            for w in current where windows[w.id] == nil { register(w, app: app) }
-            for (id, w) in windows where id.pid == pid && !currentIDs.contains(id) {
-                // Only drop windows that are definitely gone; "unknown" is retried next tick.
-                switch w.liveness {
-                case .dead: unregister(id)
-                case .alive: if w.isMinimized { unregister(id) }
-                case .unknown: break
+            var currentIDs: Set<WindowID> = []
+            for w in current {
+                currentIDs.insert(w.id)
+                if let known = windows[w.id] {
+                    if known.element != w.element { refreshElement(of: w.id, to: w, app: app) }
+                } else {
+                    register(w, app: app)
                 }
+            }
+            for (id, w) in windows where id.pid == pid && !currentIDs.contains(id) {
+                // Gone from the AX list: drop it only if the window server agrees it no longer
+                // exists (or it was minimized). Anything else is a transient and is retried.
+                if w.isMinimized || !Self.windowServerKnows(id.cgID) { unregister(id) }
             }
         }
         for running in NSWorkspace.shared.runningApplications where apps[running.processIdentifier] == nil {
             track(running, attempt: 5)  // single attempt; the timer will retry
         }
+    }
+
+    /// Same window, new AX element: re-point our bookkeeping and observers, no events.
+    private func refreshElement(of id: WindowID, to fresh: AXWindow, app: AXApp) {
+        guard let old = windows[id] else { return }
+        observers[id.pid]?.removeAll(for: old.element)
+        elementToID[old.element] = nil
+        windows[id] = fresh
+        elementToID[fresh.element] = id
+        if let obs = observers[app.pid] {
+            for n in Self.windowNotifications { obs.add(n, to: fresh.element) }
+        }
+        onEvent?(.elementChanged(fresh))
+        log("refreshed AX element for \(id)")
+    }
+
+    private static func windowServerKnows(_ cgID: CGWindowID) -> Bool {
+        guard let list = CGWindowListCopyWindowInfo(.optionIncludingWindow, cgID) as? [[String: Any]] else { return false }
+        return !list.isEmpty
+    }
+}
+
+/// `IORegisterForSystemPower` wrapper: fires before the system sleeps and after it wakes.
+private final class PowerObserver {
+    private var port: io_connect_t = 0
+    private var notifier: io_object_t = 0
+    private var source: CFRunLoopSource?
+    private let willSleep: () -> Void
+    private let didWake: () -> Void
+
+    init?(willSleep: @escaping () -> Void, didWake: @escaping () -> Void) {
+        self.willSleep = willSleep
+        self.didWake = didWake
+        var portRef: IONotificationPortRef?
+        let me = Unmanaged.passUnretained(self).toOpaque()
+        port = IORegisterForSystemPower(me, &portRef, { refcon, _, messageType, messageArgument in
+            guard let refcon else { return }
+            let obs = Unmanaged<PowerObserver>.fromOpaque(refcon).takeUnretainedValue()
+            obs.handle(messageType, messageArgument)
+        }, &notifier)
+        guard port != 0, let portRef else { return nil }
+        source = IONotificationPortGetRunLoopSource(portRef)?.takeUnretainedValue()
+        CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
+    }
+
+    private func handle(_ type: natural_t, _ arg: UnsafeMutableRawPointer?) {
+        // IOMessage.h macros aren't importable; these are iokit_common_msg(0x270/0x280/0x300).
+        let canSleep: natural_t = 0xE000_0270, willSleep: natural_t = 0xE000_0280, poweredOn: natural_t = 0xE000_0300
+        switch type {
+        case canSleep, willSleep:
+            self.willSleep()
+            IOAllowPowerChange(port, Int(bitPattern: arg))
+        case poweredOn:
+            didWake()
+        default:
+            break
+        }
+    }
+
+    deinit {
+        if let source { CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes) }
+        if notifier != 0 { IODeregisterForSystemPower(&notifier) }
+        if port != 0 { IOServiceClose(port) }
     }
 }

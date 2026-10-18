@@ -102,7 +102,4 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     private var signalSources: [DispatchSourceSignal] = []
 
-    private func log(_ s: String) {
-        FileHandle.standardError.write(("[macrx] " + s + "\n").data(using: .utf8)!)
-    }
 }

@@ -43,11 +43,13 @@ final class WindowManager {
     private var userMoving: Set<WindowID> = []
     /// `true` while the user is dragging a tab in a tab bar.
     private var isDraggingTab = false
-    /// Where a window lived when it was removed, kept briefly so a window that is "destroyed"
-    /// and "created" again with the same ID (AX hiccup after sleep) returns to its place silently.
+    /// Where a window lived when it was removed, so a window that is "destroyed" and "created"
+    /// again with the same ID (AX hiccup, sleep/wake) returns to its place silently. CG window
+    /// numbers are unique for the login session, so entries never expire by time; they go when
+    /// used, when the owning app quits, or (safety valve) when the table gets large.
     private struct Departed { let workspace: Int; let neighbour: WindowID?; let floating: Bool; let at: Date }
     private var departed: [WindowID: Departed] = [:]
-    private let departedTTL: TimeInterval = 120
+    private let departedLimit = 1000
     /// Layout persistence across restarts.
     private let store = LayoutStore()
     /// Windows placed by the restored snapshot that have not shown up yet.
@@ -111,7 +113,7 @@ final class WindowManager {
         for id in missing {
             guard let ws = model.workspace(containing: id) else { continue }
             let neighbour = ws.tree.stack(containing: id)?.windows.first { $0 != id }
-            departed[id] = Departed(workspace: ws.id, neighbour: neighbour, floating: ws.floating.contains(id), at: Date())
+            remember(id, Departed(workspace: ws.id, neighbour: neighbour, floating: ws.floating.contains(id), at: Date()))
             model.remove(id)
         }
         let adopted = axWindows.count
@@ -150,6 +152,11 @@ final class WindowManager {
             guard let w = axWindows[id] else { return }
             titles[id] = w.title
             syncTabBars()
+        case .elementChanged(let w):
+            // Same window, fresh AX handle: keep every bit of state, just talk to the new element.
+            if axWindows[w.id] != nil { axWindows[w.id] = w }
+        case .appTerminated(let pid):
+            appTerminated(pid)
         case .frameChanged(let id):
             guard let ax = axWindows[id], !parked.contains(id), let want = desiredFrames[id] else { return }
             // A change while the button is held is the user dragging: an edge (resize) or the
@@ -191,7 +198,6 @@ final class WindowManager {
             log("↩ \(app.name) '\(w.title)' \(w.id) restored")
             return
         }
-        departed = departed.filter { Date().timeIntervalSince($0.value.at) < departedTTL }
         if let d = departed.removeValue(forKey: w.id) {
             // Returning window: back to its old workspace/stack, no focus change, no pointer warp.
             axWindows[w.id] = w
@@ -224,7 +230,7 @@ final class WindowManager {
         guard axWindows[id] != nil else { return }
         if let ws = model.workspace(containing: id) {
             let neighbour = ws.tree.stack(containing: id)?.windows.first { $0 != id }
-            departed[id] = Departed(workspace: ws.id, neighbour: neighbour, floating: ws.floating.contains(id), at: Date())
+            remember(id, Departed(workspace: ws.id, neighbour: neighbour, floating: ws.floating.contains(id), at: Date()))
         }
         let wasFocused = model.focused == id
         let replacement = model.remove(id)
@@ -232,11 +238,24 @@ final class WindowManager {
         titles[id] = nil
         lastApplied[id] = nil
         effectiveFrames[id] = nil
-        observedMax[id] = nil
+        // Keep `observedMax`: if the window comes back it is the same window with the same limits.
         parked.remove(id)
         applyLayout()
         if wasFocused, let r = replacement { focus(r) }
         log("- \(id)")
+    }
+
+    private func remember(_ id: WindowID, _ d: Departed) {
+        departed[id] = d
+        if departed.count > departedLimit {
+            for (k, _) in departed.sorted(by: { $0.value.at < $1.value.at }).prefix(departed.count - departedLimit) { departed[k] = nil }
+        }
+    }
+
+    /// An app quit: nothing of its windows can ever come back under the same pid.
+    private func appTerminated(_ pid: pid_t) {
+        departed = departed.filter { $0.key.pid != pid }
+        observedMax = observedMax.filter { $0.key.pid != pid }
     }
 
     /// The system says `id` is focused (click, ⌘-Tab, app activation…). Fold it into the model.
@@ -323,7 +342,7 @@ final class WindowManager {
                 let front = NSWorkspace.shared.frontmostApplication?.processIdentifier
                 let key = app.focusedWindow?.id
                 guard front == id.pid, let key, key != id, let f = ax.frame else { return }
-                self.log("app kept \(key) as key window; clicking title bar of \(id)")
+                log("app kept \(key) as key window; clicking title bar of \(id)")
                 self.mouse.clickAndRestore(at: CGPoint(x: f.midX, y: f.minY + 8))
             }
         }
@@ -565,13 +584,8 @@ final class WindowManager {
     private func closeWindow(_ id: WindowID) {
         guard let ax = axWindows[id] else { return }
         log("close tab \(id)")
+        // The watcher reports the destruction (kAXUIElementDestroyed) and the layout follows.
         _ = ax.close()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) { [weak self] in
-            guard let self, let ax = self.axWindows[id] else { return }
-            if !ax.isAlive || ax.frame == nil {
-                self.windowDestroyed(id)
-            }
-        }
     }
 
     private func tabDragUpdated(_ w: WindowID, at p: CGPoint) {
@@ -1004,11 +1018,6 @@ final class WindowManager {
         parked.removeAll()
     }
 
-    // MARK: - Debug
-
-    private func log(_ s: String) {
-        FileHandle.standardError.write(("[macrx] " + s + "\n").data(using: .utf8)!)
-    }
 }
 
 @MainActor

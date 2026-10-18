@@ -46,7 +46,7 @@ enum SkyLight {
             }
             for i in 0x20..<0x30 { bytes[i] = 0xFF }
             let err = bytes.withUnsafeMutableBufferPointer { postEventRecord(&psn, $0.baseAddress!) }
-            if err != .success { FileHandle.standardError.write("[macrx] SLPSPostEventRecordTo(\(kind)) → \(err.rawValue)\n".data(using: .utf8)!) }
+            if err != .success { log("SLPSPostEventRecordTo(\(kind)) → \(err.rawValue)") }
         }
         return true
     }

@@ -74,7 +74,4 @@ final class LayoutStore {
         }
     }
 
-    private func log(_ s: String) {
-        FileHandle.standardError.write(("[macrx] " + s + "\n").data(using: .utf8)!)
-    }
 }

@@ -94,6 +94,13 @@ public struct WorkspaceModel {
         return id
     }
 
+    /// Replaces all workspaces and the visible map wholesale (used when restoring a snapshot;
+    /// call `setDisplays` afterwards to re-establish the invariants).
+    mutating func restore(workspaces: [Int: Workspace], visible: [DisplayID: Int]) {
+        self.workspaces = workspaces
+        self.visible = visible
+    }
+
     /// Display geometrically in `dir` from `from`.
     public func display(in dir: Direction, from: DisplayID) -> Display? {
         guard let origin = display(from) else { return nil }

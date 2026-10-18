@@ -2,7 +2,7 @@ import Foundation
 import CoreGraphics
 
 /// Identifies a window of a managed application.
-public struct WindowID: Hashable, Sendable, CustomStringConvertible {
+public struct WindowID: Hashable, Sendable, Codable, CustomStringConvertible {
     public let pid: Int32
     public let cgID: UInt32
 

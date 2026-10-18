@@ -18,6 +18,11 @@ A small, keyboard-driven tiling window manager for macOS, in the spirit of i3.
 
 macrx uses only public-ish Accessibility APIs: no SIP changes, no kernel extensions.
 
+The layout is saved to `~/.local/state/macrx/layout.json` (`$XDG_STATE_HOME`) after every
+change, so restarting macrx (or reloading after a crash) puts every window back where it was —
+same workspace, tile, stack order and fixed sizes. Windows that disappeared meanwhile are
+dropped; the file is ignored after a reboot. Delete it to start from a clean layout.
+
 ## Requirements
 
 - macOS 14+ (developed on macOS 26)

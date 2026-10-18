@@ -45,6 +45,11 @@ final class WindowManager {
     private struct Departed { let workspace: Int; let neighbour: WindowID?; let floating: Bool; let at: Date }
     private var departed: [WindowID: Departed] = [:]
     private let departedTTL: TimeInterval = 120
+    /// Layout persistence across restarts.
+    private let store = LayoutStore()
+    /// Windows placed by the restored snapshot that have not shown up yet.
+    private var restoring: Set<WindowID> = []
+    private var restoredFocus: WindowID?
 
     var onQuit: (() -> Void)?
     var onReload: (() -> Void)?
@@ -55,7 +60,13 @@ final class WindowManager {
         self.watcher = watcher
         self.mouse = mouse
         self.tabBars = tabBars
-        self.model = WorkspaceModel(displays: displays.displays, firstWorkspaceID: config.firstWorkspace)
+        if let saved = store.load() {
+            self.model = WorkspaceModel(restoring: saved, displays: displays.displays, firstWorkspaceID: config.firstWorkspace)
+            self.restoring = model.allWindows
+            self.restoredFocus = model.focused
+        } else {
+            self.model = WorkspaceModel(displays: displays.displays, firstWorkspaceID: config.firstWorkspace)
+        }
 
         displays.onChange = { [weak self] d in self?.displaysChanged(d) }
         watcher.onEvent = { [weak self] e in self?.handle(e) }
@@ -74,8 +85,39 @@ final class WindowManager {
     }
 
     func start() {
+        if !restoring.isEmpty {
+            log("restoring layout: \(restoring.count) windows in \(model.workspaces.count) workspaces")
+        }
         watcher.start()
-        if let p = displays.display(containing: mouse.location) { model.setFocusedDisplay(p.id) }
+        if restoring.isEmpty, restoredFocus == nil {
+            if let p = displays.display(containing: mouse.location) { model.setFocusedDisplay(p.id) }
+        } else {
+            // Give slow apps a moment to answer AX, then drop whatever never came back.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in self?.finishRestore() }
+        }
+    }
+
+    /// Ends the restore window: snapshot windows that never appeared are removed from the model
+    /// (but remembered in `departed`, so a straggler still lands back in its tile), then focus
+    /// returns to the window that had it.
+    private func finishRestore() {
+        let missing = restoring
+        restoring.removeAll()
+        for id in missing {
+            guard let ws = model.workspace(containing: id) else { continue }
+            let neighbour = ws.tree.stack(containing: id)?.windows.first { $0 != id }
+            departed[id] = Departed(workspace: ws.id, neighbour: neighbour, floating: ws.floating.contains(id), at: Date())
+            model.remove(id)
+        }
+        let adopted = axWindows.count
+        log("restored layout: \(adopted) adopted, \(missing.count) dropped")
+        applyLayout()
+        if let f = restoredFocus, axWindows[f] != nil {
+            focus(f, warp: false)
+        } else if let w = model.focusedWorkspace?.focused, axWindows[w] != nil {
+            focus(w, warp: false)
+        }
+        restoredFocus = nil
     }
 
     func applyConfig(_ cfg: Config) {
@@ -117,6 +159,14 @@ final class WindowManager {
 
     private func windowCreated(_ w: AXWindow, app: AXApp) {
         guard axWindows[w.id] == nil, !ignored.contains(w.id) else { return }
+        if restoring.remove(w.id) != nil {
+            // Already placed by the restored layout: just attach, no focus change.
+            axWindows[w.id] = w
+            titles[w.id] = w.title
+            applyLayout()
+            log("↩ \(app.name) '\(w.title)' \(w.id) restored")
+            return
+        }
         departed = departed.filter { Date().timeIntervalSince($0.value.at) < departedTTL }
         if let d = departed.removeValue(forKey: w.id) {
             // Returning window: back to its old workspace/stack, no focus change, no pointer warp.
@@ -666,6 +716,7 @@ final class WindowManager {
 
         raiseStackTops()
         updateStatusBar()
+        if restoring.isEmpty { store.save(model.snapshot(bootTime: LayoutStore.bootTime)) }
         // A window just told us (via place) how big it can really get: lay out once more so its
         // tile shrinks to fit and the neighbours take the rest. One extra pass at most.
         if relayoutPending, observedMax != caps {
@@ -825,7 +876,9 @@ final class WindowManager {
     // MARK: - Shutdown
 
     /// Brings every parked (off-screen) window back on screen so nothing is lost when macrx exits.
+    /// The layout is saved first so the next launch can put everything back.
     func restoreParkedWindows() {
+        store.saveNow(model.snapshot(bootTime: LayoutStore.bootTime))
         for id in parked {
             guard let ax = axWindows[id], let ws = model.workspace(containing: id),
                   let d = model.display(ws.displayID) else { continue }

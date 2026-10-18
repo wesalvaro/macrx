@@ -70,6 +70,14 @@ public enum LayoutEngine {
     /// Largest extent the subtree can use along `o`, or nil when unconstrained.
     /// A stack is constrained only if *every* window in it is (so no member ever has desktop
     /// showing through around it); a split only if every child is.
+    public static func maxExtent(
+        _ node: Node, _ o: Orientation,
+        tabBarHeight: @escaping TabBarHeight = { _ in 0 },
+        maxSize: @escaping MaxSize
+    ) -> CGFloat? {
+        maxExtent(node, o, ctx: Context(tabBarHeight: tabBarHeight, maxSize: maxSize))
+    }
+
     static func maxExtent(_ node: Node, _ o: Orientation, ctx: Context) -> CGFloat? {
         if node.isStack {
             var cap: CGFloat = 0

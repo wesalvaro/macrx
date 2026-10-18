@@ -220,9 +220,14 @@ extension Tree {
         guard let parentRect = frames[split.id], let childRect = frames[child.id] else { return false }
         let extent = dir.orientation == .horizontal ? parentRect.width : parentRect.height
         let delta = (dir.isForward ? step : -step) * extent
-        let partnerIdx = idx + 1 < split.children.count ? idx + 1 : idx - 1
-        return Self.applyResize(child: child, childRect: childRect, partner: split.children[partnerIdx],
-                                partnerRect: frames[split.children[partnerIdx].id], by: delta, along: dir.orientation)
+        // Exchange space with the following sibling (or the preceding one at the end), skipping
+        // a neighbour that is app-capped along this axis since it cannot absorb anything.
+        let candidates = [idx + 1, idx - 1].filter { split.children.indices.contains($0) }
+        let partnerIdx = candidates.first { LayoutEngine.maxExtent(split.children[$0], dir.orientation, maxSize: maxSize) == nil }
+            ?? candidates[0]
+        return applyResize(child: child, childRect: childRect, partner: split.children[partnerIdx],
+                           partnerRect: frames[split.children[partnerIdx].id], by: delta, along: dir.orientation,
+                           in: displayFrame, maxSize: maxSize)
     }
 
     /// Moves the `edge` of the tile containing `w` by `pixels` (positive = towards increasing
@@ -244,8 +249,9 @@ extension Tree {
                     // Moving the right/bottom edge outward grows this child; moving the
                     // left/top edge outward (negative pixels) also grows it.
                     let delta = edge.isForward ? pixels : -pixels
-                    return Self.applyResize(child: child, childRect: childRect, partner: partner,
-                                            partnerRect: frames[partner.id], by: delta, along: edge.orientation)
+                    return applyResize(child: child, childRect: childRect, partner: partner,
+                                       partnerRect: frames[partner.id], by: delta, along: edge.orientation,
+                                       in: displayFrame, maxSize: maxSize)
                 }
             }
             child = a
@@ -254,17 +260,33 @@ extension Tree {
         return false
     }
 
-    private static func applyResize(child: Node, childRect: CGRect, partner: Node, partnerRect: CGRect?,
-                                    by delta: CGFloat, along o: Orientation) -> Bool {
+    /// Applies a resize of `child` by `delta`, but only keeps it if it means something:
+    /// - a tile that is app-capped along the axis cannot change size, so resizing it — or
+    ///   resizing its neighbour into it — is refused (nothing to lock);
+    /// - otherwise the specs are applied tentatively and kept only if the layout actually
+    ///   moved (when nothing can absorb the change the tile would end up fixed at the size it
+    ///   already had: a lock for nothing).
+    private mutating func applyResize(child: Node, childRect: CGRect, partner: Node, partnerRect: CGRect?,
+                                      by delta: CGFloat, along o: Orientation,
+                                      in displayFrame: CGRect, maxSize: @escaping LayoutEngine.MaxSize) -> Bool {
+        if LayoutEngine.maxExtent(child, o, maxSize: maxSize) != nil
+            || LayoutEngine.maxExtent(partner, o, maxSize: maxSize) != nil { return false }
         let len = o == .horizontal ? childRect.width : childRect.height
         let partnerLen = partnerRect.map { o == .horizontal ? $0.width : $0.height } ?? .infinity
         // Clamp so neither side drops below the minimum.
         var d = delta
-        d = max(d, minimumLength - len)
-        d = min(d, partnerLen - minimumLength)
+        d = max(d, Self.minimumLength - len)
+        d = min(d, partnerLen - Self.minimumLength)
         guard abs(d) >= 0.5 else { return false }
+        let before = (child.size, partner.size)
         child.size = .fixed((len + d).rounded())
-        if case .fixed(let p) = partner.size { partner.size = .fixed(max(minimumLength, (p - d).rounded())) }
+        if case .fixed(let p) = partner.size { partner.size = .fixed(max(Self.minimumLength, (p - d).rounded())) }
+        let after = LayoutEngine.nodeFrames(self, in: displayFrame, maxSize: maxSize)[child.id]
+        let newLen = after.map { o == .horizontal ? $0.width : $0.height } ?? len
+        if abs(newLen - len) < 1 {
+            (child.size, partner.size) = before
+            return false
+        }
         return true
     }
 

@@ -185,6 +185,42 @@ import Foundation
         #expect(LayoutEngine.frames(t, in: screen)[w(1)]!.width == 400)
     }
 
+    @Test func ResizeThatCannotChangeTheLayoutIsANoop() {
+        // [A | B], B app-capped at 300 → A is already 700 and B cannot take more.
+        let a = Node(stack: [w(1)]), b = Node(stack: [w(2)])
+        var t = Tree(root: Node(split: .horizontal, children: [a, b]))
+        let caps: LayoutEngine.MaxSize = { $0 == w(2) ? CGSize(width: 300, height: CGFloat.infinity) : nil }
+        // Growing A: the slack B can't take flows straight back to A — nothing changes.
+        let grow = t.resize(w(1), .right, step: 0.1, in: screen, maxSize: caps)
+        #expect(!grow)
+        #expect(a.size == .default)
+        // Resizing the capped B itself: nothing can change either.
+        let capped = t.resize(w(2), .left, step: 0.1, in: screen, maxSize: caps)
+        #expect(!capped)
+        #expect(b.size == .default)
+        // Shrinking A: B can't grow, so refused as well.
+        let shrink = t.resize(w(1), .left, step: 0.1, in: screen, maxSize: caps)
+        #expect(!shrink)
+        #expect(a.size == .default)
+        // …but against a flex sibling the resize is real.
+        t.insert(w(3), atEdge: .left)
+        let real = t.resize(w(1), .left, step: 0.1, in: screen, maxSize: caps)
+        #expect(real)
+        #expect(a.size.isFixed)
+    }
+
+    @Test func ResizeThatScalesBackIsANoop() {
+        // Both fixed and no flex sibling: shrinking A just scales it back up → refused, no change.
+        let a = Node(stack: [w(1)]); a.size = .fixed(600)
+        let b = Node(stack: [w(2)]); b.size = .fixed(400)
+        var t = Tree(root: Node(split: .horizontal, children: [a, b]))
+        // Here the partner is fixed, so it *does* absorb: real change.
+        let r = t.resize(w(1), .left, step: 0.1, in: screen)
+        #expect(r)
+        #expect(a.size == .fixed(500))
+        #expect(b.size == .fixed(500))
+    }
+
     @Test func ResetSizeReturnsToFlex() {
         var t = Tree(root: Node(split: .horizontal, children: [Node(stack: [w(1)]), Node(stack: [w(2)])]))
         _ = t.resize(w(1), .right, step: 0.2, in: screen)

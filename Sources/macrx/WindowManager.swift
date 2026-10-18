@@ -39,6 +39,8 @@ final class WindowManager {
     private var previousWorkspaceID: Int?
     /// Tiled windows the user is currently drag-resizing (applied on mouse-up).
     private var userResizing: Set<WindowID> = []
+    /// Tiled windows the user is currently dragging by the title bar (dropped on mouse-up).
+    private var userMoving: Set<WindowID> = []
     /// `true` while the user is dragging a tab in a tab bar.
     private var isDraggingTab = false
     /// Where a window lived when it was removed, kept briefly so a window that is "destroyed"
@@ -72,7 +74,7 @@ final class WindowManager {
         displays.onChange = { [weak self] d in self?.displaysChanged(d) }
         watcher.onEvent = { [weak self] e in self?.handle(e) }
         mouse.onPointerMoved = { [weak self] p in self?.pointerMoved(to: p) }
-        mouse.onMouseUp = { [weak self] in self?.finishUserResize() }
+        mouse.onMouseUp = { [weak self] in self?.finishUserDrag() }
         mouse.startDragTracking()
         tabBars.onTabClicked = { [weak self] w in self?.focus(w, warp: false) }
         tabBars.onTabClosed = { [weak self] w in self?.closeWindow(w) }
@@ -149,14 +151,33 @@ final class WindowManager {
             titles[id] = w.title
             syncTabBars()
         case .frameChanged(let id):
-            guard axWindows[id] != nil, !parked.contains(id) else { return }
-            // A change while the button is held is the user dragging an edge: let it happen and
-            // fold it into the layout on mouse-up. Anything else gets snapped back.
-            if mouse.isPrimaryButtonDown, desiredFrames[id] != nil, effectiveFrames[id] == nil {
-                userResizing.insert(id)
-            } else if userResizing.isEmpty {
+            guard let ax = axWindows[id], !parked.contains(id), let want = desiredFrames[id] else { return }
+            // A change while the button is held is the user dragging: an edge (resize) or the
+            // title bar (move). Let it happen and fold it into the layout on mouse-up. Anything
+            // else gets snapped back.
+            if mouse.isPrimaryButtonDown, let have = ax.frame {
+                let ref = effectiveFrames[id] ?? want
+                let sizeChanged = abs(have.width - ref.width) > 2 || abs(have.height - ref.height) > 2
+                let moved = abs(have.minX - ref.minX) > 2 || abs(have.minY - ref.minY) > 2
+                if sizeChanged {
+                    if effectiveFrames[id] == nil { userResizing.insert(id) }
+                } else if moved {
+                    userMoving.insert(id)
+                    tabBars.showDropPreview(dropPreview(for: id, at: mouse.location))
+                }
+            } else if userResizing.isEmpty, userMoving.isEmpty {
                 scheduleVerify()
             }
+        }
+    }
+
+    /// Preview rect for dropping `w` at `p`, or nil when it would simply snap back.
+    private func dropPreview(for w: WindowID, at p: CGPoint) -> CGRect? {
+        switch dropTarget(for: w, at: p) {
+        case .joinStack(_, _, let preview), .splitTile(_, _, let preview): return preview
+        case .reorder, nil:
+            if let d = displays.display(containing: p), tiles.allSatisfy({ $0.display != d.id }) { return d.frame }
+            return nil
         }
     }
 
@@ -336,7 +357,11 @@ final class WindowManager {
             mouse.suppress()
         }
         guard !eff.contains(p) else { return }
-        let moved = Self.centered(size: eff.size, on: p, within: content)
+        var moved = Self.centered(size: eff.size, on: p, within: content)
+        // Oversized axes stay where `place` anchored them (tile edge, on screen).
+        if eff.width > content.width + 2 { moved.origin.x = eff.origin.x }
+        if eff.height > content.height + 2 { moved.origin.y = eff.origin.y }
+        guard moved.origin != eff.origin else { return }
         ax.setPosition(moved.origin)
         effectiveFrames[id] = moved
     }
@@ -363,7 +388,7 @@ final class WindowManager {
     }
 
     private func pointerMoved(to p: CGPoint) {
-        guard !isDraggingTab, config.focusFollowsMouse else { return }
+        guard !isDraggingTab, userMoving.isEmpty, config.focusFollowsMouse else { return }
         // Tab bars: hovering a tab switches to it (unless hovering its × close button).
         // Never look through the bar at windows beneath.
         if tabBars.frames.values.contains(where: { $0.contains(p) }) {
@@ -577,28 +602,42 @@ final class WindowManager {
     private func tabDragEnded(_ w: WindowID, at p: CGPoint) {
         isDraggingTab = false
         tabBars.showDropPreview(nil)
-        guard let srcWS = model.workspace(containing: w),
-              let srcStack = srcWS.tree.stack(containing: w)?.id else { return }
-        let visibleTiles = tiles.map(\.tile)
-        switch TabLayout.dropTarget(at: p, draggedWindow: w, sourceStack: srcStack, tiles: visibleTiles, tabRects: tabBars.tabRects) {
+        _ = applyDrop(of: w, at: p, allowReorder: true)
+    }
+
+    /// Where dropping `w` at `p` would put it (shared by tab drags and window drags).
+    private func dropTarget(for w: WindowID, at p: CGPoint) -> TabDropTarget? {
+        guard let ws = model.workspace(containing: w), let src = ws.tree.stack(containing: w)?.id else { return nil }
+        return TabLayout.dropTarget(at: p, draggedWindow: w, sourceStack: src, tiles: tiles.map(\.tile), tabRects: tabBars.tabRects)
+    }
+
+    /// Moves `w` according to the drop target at `p`. Returns `false` if nothing changed.
+    @discardableResult
+    private func applyDrop(of w: WindowID, at p: CGPoint, allowReorder: Bool) -> Bool {
+        guard let srcWS = model.workspace(containing: w) else { return false }
+        switch dropTarget(for: w, at: p) {
         case .reorder(let idx):
+            guard allowReorder else { return false }
             model.update(srcWS.id) { _ = $0.tree.reorder(w, to: idx) }
             applyLayout()
             focus(w, warp: false)
+            return true
         case .joinStack(let dstStack, let index, _):
             guard let dstDisplay = tiles.first(where: { $0.tile.stackID == dstStack })?.display,
-                  let dstWS = model.visibleWorkspace(on: dstDisplay)?.id else { return }
+                  let dstWS = model.visibleWorkspace(on: dstDisplay)?.id else { return false }
             if dstWS != srcWS.id { _ = model.moveWindow(w, toWorkspace: dstWS) }
             model.update(dstWS) { _ = $0.tree.move(w, toStack: dstStack, at: index) }
             applyLayout()
             focus(w, warp: false)
+            return true
         case .splitTile(let dstStack, let edge, _):
             guard let dstDisplay = tiles.first(where: { $0.tile.stackID == dstStack })?.display,
-                  let dstWS = model.visibleWorkspace(on: dstDisplay)?.id else { return }
+                  let dstWS = model.visibleWorkspace(on: dstDisplay)?.id else { return false }
             if dstWS != srcWS.id { _ = model.moveWindow(w, toWorkspace: dstWS) }
             model.update(dstWS) { _ = $0.tree.move(w, splitting: dstStack, edge: edge) }
             applyLayout()
             focus(w, warp: false)
+            return true
         case nil:
             if let d = displays.display(containing: p),
                tiles.allSatisfy({ $0.display != d.id }),
@@ -607,7 +646,9 @@ final class WindowManager {
                 _ = model.moveWindow(w, toWorkspace: dstWS)
                 applyLayout()
                 focus(w, warp: false)
+                return true
             }
+            return false
         }
     }
 
@@ -816,7 +857,7 @@ final class WindowManager {
         guard let actual = ax.frame else { return rect }
         noteAcceptedSize(actual.size, requested: rect.size, for: ax.id)
         if abs(actual.width - rect.width) > 2 || abs(actual.height - rect.height) > 2 {
-            let placed: CGRect
+            var placed: CGRect
             if ax.id == model.focused {
                 // Focused: go straight to where `bringConstrainedWindowToPointer` would put it
                 // (centred on the pointer if it's in the tile, else the tile centre), so the
@@ -832,6 +873,18 @@ final class WindowManager {
             } else {
                 placed = CGRect(x: rect.midX - actual.width / 2, y: rect.midY - actual.height / 2,
                                 width: actual.width, height: actual.height)
+            }
+            // An axis the app made *larger* than the tile (minimum size) is anchored to the
+            // tile's leading edge and kept on screen: the overflow spills over the neighbour
+            // towards the display interior rather than off the edge, and never leaves a strip
+            // of desktop beside the tile.
+            if let screen = displays.display(containing: rect.center)?.frame {
+                if actual.width > rect.width + 2 {
+                    placed.origin.x = min(max(rect.minX, screen.minX), max(screen.minX, screen.maxX - actual.width))
+                }
+                if actual.height > rect.height + 2 {
+                    placed.origin.y = min(max(rect.minY, screen.minY), max(screen.minY, screen.maxY - actual.height))
+                }
             }
             ax.setPosition(placed.origin)
             effectiveFrames[ax.id] = placed
@@ -888,19 +941,29 @@ final class WindowManager {
         }
     }
 
-    // MARK: - Mouse resize
+    // MARK: - Mouse drag (resize / move)
 
-    /// Converts a finished drag-resize of a tiled window into split-weight changes.
-    private func finishUserResize() {
-        guard !userResizing.isEmpty else { return }
-        let ids = userResizing
+    /// Mouse-up after the user dragged tiled windows: edge drags become fixed sizes, title-bar
+    /// drags drop the window into the tile under the pointer (or snap it back).
+    private func finishUserDrag() {
+        guard !userResizing.isEmpty || !userMoving.isEmpty else { return }
+        let resizing = userResizing, moving = userMoving
         userResizing.removeAll()
+        userMoving.removeAll()
+        tabBars.showDropPreview(nil)
         var changed = false
-        for id in ids {
+
+        for id in resizing {
             guard let ax = axWindows[id], let have = ax.frame, let want = desiredFrames[id],
                   let ws = model.workspace(containing: id), let display = model.display(ws.displayID) else { continue }
-            // The user may have pulled the window past a size we thought was its limit: re-measure.
-            observedMax[id] = nil
+            // The user may have pulled the window past a size we thought was its limit along
+            // the axis that changed: re-measure that axis only, so the app-cap guard keeps
+            // working on the other one.
+            if var cap = observedMax[id] {
+                if abs(have.width - want.width) > 2 { cap.width = .infinity }
+                if abs(have.height - want.height) > 2 { cap.height = .infinity }
+                observedMax[id] = (cap.width.isFinite || cap.height.isFinite) ? cap : nil
+            }
             let edges: [(Direction, CGFloat)] = [
                 (.left, have.minX - want.minX), (.right, have.maxX - want.maxX),
                 (.up, have.minY - want.minY), (.down, have.maxY - want.maxY),
@@ -913,6 +976,15 @@ final class WindowManager {
             }
             lastApplied[id] = nil  // force re-apply even if the tile didn't change (snap back)
         }
+
+        for id in moving {
+            lastApplied[id] = nil  // whatever happens, the window ends up placed in a tile
+            if applyDrop(of: id, at: mouse.location, allowReorder: false) {
+                changed = true
+                log("mouse move \(id) dropped at \(mouse.location)")
+            }
+        }
+
         applyLayout()
         if !changed { scheduleVerify() }
     }

@@ -11,7 +11,9 @@ A small, keyboard-driven tiling window manager for macOS, in the spirit of i3.
   or across to the next display.
 - Focus moves in any direction (across displays too); the mouse follows focus and
   focus follows the mouse.
-- Drag a window's edge with the mouse and its tile (and the neighbouring tiles) resize to match.
+- Drag a window's edge with the mouse and its tile (and the neighbouring tiles) resize to match;
+  drag a window by its title bar and it drops into the tile under the pointer (edge = split,
+  middle = join the stack), with a live preview — or snaps back.
 - Global workspaces `0`–`9` (numbering starts at `first-workspace`, default `0`), each living on one display at a time; a menu bar item shows
   each display's workspace (`2 · 5`, focused display emphasised) with a dropdown to switch.
 - Everything is configured in `~/.config/macrx/config.toml`.

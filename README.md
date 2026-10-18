@@ -78,6 +78,11 @@ are placed. When *every* window in a tile is capped along an axis, the tile shri
 cap and its neighbours take the freed space — so no desktop shows through. As soon as an
 unconstrained window joins that tile (or a new one opens there), it springs back to full size.
 
+The opposite case is deliberately *not* handled: a window whose **minimum** size is larger than
+its share is simply crammed in (it overflows its tile, stays focusable and comes to the front
+as usual). Growing the tile to suit it would start a tug-of-war with its neighbours; making sure
+there is enough room is up to you. macrx only avoids *wasting* space, it never fights for it.
+
 ## Configuration
 
 `~/.config/macrx/config.toml` is created with the defaults on first run.

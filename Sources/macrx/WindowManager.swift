@@ -750,7 +750,10 @@ final class WindowManager {
     /// Records the size an app actually accepted. An axis that came back smaller than requested
     /// is a cap; an axis the app filled is free. A previously capped axis that now fills is freed
     /// again, and a cap grows if the app accepts more than we had recorded. Coming back *larger*
-    /// than requested is a minimum-size constraint and says nothing about the maximum.
+    /// than requested is a minimum-size constraint and says nothing about the maximum — and it is
+    /// deliberately not fed back into the layout: growing the tile would fight the neighbours, so
+    /// such a window just overflows its tile (still focusable). We avoid wasting space, never
+    /// compete for it.
     private func noteAcceptedSize(_ actual: CGSize, requested: CGSize, for id: WindowID) {
         let old = observedMax[id]
         func axis(_ got: CGFloat, _ asked: CGFloat, _ previous: CGFloat?) -> CGFloat {

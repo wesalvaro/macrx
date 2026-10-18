@@ -36,8 +36,6 @@ extension Tree {
         let newStack = Node(stack: [w])
         guard let old = root else { root = newStack; return }
         if old.isSplit && old.orientation == edge.orientation {
-            let avg = 1 / CGFloat(old.children.count + 1)
-            newStack.weight = avg
             old.insertChild(newStack, at: edge.isForward ? old.children.count : 0)
         } else {
             let split = Node(split: edge.orientation)
@@ -47,7 +45,7 @@ extension Tree {
             } else {
                 split.appendChild(newStack); split.appendChild(old)
             }
-            old.weight = 1; newStack.weight = 1
+            old.size = .default; newStack.size = .default
         }
         normalize()
     }
@@ -121,9 +119,6 @@ extension Tree {
         guard let liveTarget = allStacks.first(where: { $0.id == targetID }) else { return false }
         let newStack = Node(stack: [w])
         if let parent = liveTarget.parent, parent.orientation == edge.orientation, let idx = parent.index(of: liveTarget) {
-            let half = liveTarget.weight / 2
-            liveTarget.weight = half
-            newStack.weight = half
             parent.insertChild(newStack, at: edge.isForward ? idx + 1 : idx)
         } else {
             let split = Node(split: edge.orientation)
@@ -132,8 +127,8 @@ extension Tree {
             } else {
                 root = split
             }
-            liveTarget.weight = 0.5
-            newStack.weight = 0.5
+            liveTarget.size = .default
+            newStack.size = .default
             if edge.isForward {
                 split.appendChild(liveTarget)
                 split.appendChild(newStack)
@@ -187,7 +182,6 @@ extension Tree {
             anc = a.parent
         }
         if let a = anc, let idx = a.index(of: child) {
-            newStack.weight = child.weight
             a.insertChild(newStack, at: dir.isForward ? idx + 1 : idx)
         } else if let old = root {
             let split = Node(split: dir.orientation)
@@ -197,19 +191,23 @@ extension Tree {
             } else {
                 split.appendChild(newStack); split.appendChild(old)
             }
-            old.weight = 1; newStack.weight = 1
+            old.size = .default; newStack.size = .default
         }
         normalize()
     }
 
     // MARK: Resize
 
+    /// Smallest length a resized child may be given.
+    public static let minimumLength: CGFloat = 50
+
     /// Resizes the tile containing `w` along `dir.orientation` by `step` (fraction of the
-    /// parent split). `.right`/`.down` grow, `.left`/`.up` shrink. Space is exchanged with
-    /// the following sibling, or the preceding one at the end of the split.
+    /// parent split's extent). `.right`/`.down` grow, `.left`/`.up` shrink. The child becomes
+    /// `fixed`; a flex partner absorbs the change, a fixed partner is moved by the opposite amount.
     /// Returns `false` if there is nothing to resize against.
     @discardableResult
-    public mutating func resize(_ w: WindowID, _ dir: Direction, step: CGFloat, minimum: CGFloat = 0.1) -> Bool {
+    public mutating func resize(_ w: WindowID, _ dir: Direction, step: CGFloat, in displayFrame: CGRect,
+                                maxSize: @escaping LayoutEngine.MaxSize = { _ in nil }) -> Bool {
         guard let s = stack(containing: w) else { return false }
         var child: Node = s
         var anc: Node? = s.parent
@@ -218,22 +216,21 @@ extension Tree {
             anc = a.parent
         }
         guard let split = anc, let idx = split.index(of: child), split.children.count > 1 else { return false }
+        let frames = LayoutEngine.nodeFrames(self, in: displayFrame, maxSize: maxSize)
+        guard let parentRect = frames[split.id], let childRect = frames[child.id] else { return false }
+        let extent = dir.orientation == .horizontal ? parentRect.width : parentRect.height
+        let delta = (dir.isForward ? step : -step) * extent
         let partnerIdx = idx + 1 < split.children.count ? idx + 1 : idx - 1
-        let partner = split.children[partnerIdx]
-        let delta = dir.isForward ? step : -step
-        let newChild = child.weight + delta
-        let newPartner = partner.weight - delta
-        guard newChild >= minimum, newPartner >= minimum else { return false }
-        child.weight = newChild
-        partner.weight = newPartner
-        return true
+        return Self.applyResize(child: child, childRect: childRect, partner: split.children[partnerIdx],
+                                partnerRect: frames[split.children[partnerIdx].id], by: delta, along: dir.orientation)
     }
 
     /// Moves the `edge` of the tile containing `w` by `pixels` (positive = towards increasing
-    /// coordinate, i.e. right/down), by re-weighting the nearest ancestor split that shares that
+    /// coordinate, i.e. right/down), fixing the size of the nearest ancestor that shares that
     /// edge with a sibling. Returns `false` if the edge is on the display boundary.
     @discardableResult
-    public mutating func resizeEdge(_ w: WindowID, edge: Direction, by pixels: CGFloat, in displayFrame: CGRect, minimum: CGFloat = 0.1) -> Bool {
+    public mutating func resizeEdge(_ w: WindowID, edge: Direction, by pixels: CGFloat, in displayFrame: CGRect,
+                                    maxSize: @escaping LayoutEngine.MaxSize = { _ in nil }) -> Bool {
         guard abs(pixels) >= 1, let s = stack(containing: w) else { return false }
         var child: Node = s
         var anc: Node? = s.parent
@@ -241,20 +238,14 @@ extension Tree {
             if a.orientation == edge.orientation, let idx = a.index(of: child) {
                 let hasNeighbor = edge.isForward ? idx < a.children.count - 1 : idx > 0
                 if hasNeighbor {
-                    let frames = LayoutEngine.nodeFrames(self, in: displayFrame)
-                    guard let rect = frames[a.id] else { return false }
-                    let extent = edge.orientation == .horizontal ? rect.width : rect.height
-                    guard extent > 0 else { return false }
+                    let frames = LayoutEngine.nodeFrames(self, in: displayFrame, maxSize: maxSize)
+                    let partner = a.children[edge.isForward ? idx + 1 : idx - 1]
+                    guard let childRect = frames[child.id] else { return false }
                     // Moving the right/bottom edge outward grows this child; moving the
                     // left/top edge outward (negative pixels) also grows it.
-                    var delta = pixels / extent
-                    if !edge.isForward { delta = -delta }
-                    let partner = a.children[edge.isForward ? idx + 1 : idx - 1]
-                    delta = min(delta, partner.weight - minimum)
-                    delta = max(delta, minimum - child.weight)
-                    child.weight += delta
-                    partner.weight -= delta
-                    return true
+                    let delta = edge.isForward ? pixels : -pixels
+                    return Self.applyResize(child: child, childRect: childRect, partner: partner,
+                                            partnerRect: frames[partner.id], by: delta, along: edge.orientation)
                 }
             }
             child = a
@@ -263,14 +254,44 @@ extension Tree {
         return false
     }
 
+    private static func applyResize(child: Node, childRect: CGRect, partner: Node, partnerRect: CGRect?,
+                                    by delta: CGFloat, along o: Orientation) -> Bool {
+        let len = o == .horizontal ? childRect.width : childRect.height
+        let partnerLen = partnerRect.map { o == .horizontal ? $0.width : $0.height } ?? .infinity
+        // Clamp so neither side drops below the minimum.
+        var d = delta
+        d = max(d, minimumLength - len)
+        d = min(d, partnerLen - minimumLength)
+        guard abs(d) >= 0.5 else { return false }
+        child.size = .fixed((len + d).rounded())
+        if case .fixed(let p) = partner.size { partner.size = .fixed(max(minimumLength, (p - d).rounded())) }
+        return true
+    }
+
+    /// Returns the tile containing `w` to flexible sizing.
+    @discardableResult
+    public mutating func resetSize(_ w: WindowID) -> Bool {
+        guard let s = stack(containing: w) else { return false }
+        var node: Node = s
+        var changed = false
+        // Reset the stack and every ancestor the user may have fixed via this window.
+        while let p = node.parent {
+            if node.size != .default { node.size = .default; changed = true }
+            node = p
+        }
+        return changed
+    }
+
     // MARK: Orientation
 
-    /// Toggles the orientation of the split directly containing `w`'s stack.
+    /// Toggles the orientation of the split directly containing `w`'s stack. Fixed sizes along
+    /// the old axis rarely make sense along the new one, so the children go back to flex.
     /// If the stack is the root (no split), does nothing and returns `false`.
     @discardableResult
     public mutating func toggleParentOrientation(_ w: WindowID) -> Bool {
         guard let s = stack(containing: w), let p = s.parent, let o = p.orientation else { return false }
         p.orientation = o.toggled
+        for c in p.children { c.size = .default }
         normalize()
         return true
     }

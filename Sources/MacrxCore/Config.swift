@@ -236,11 +236,12 @@ public struct Config: Equatable, Sendable {
     alt-shift-k = "move down"
     alt-shift-l = "move right"
 
-    # Resize
+    # Resize (a resized tile keeps a fixed size; the rest share what is left equally)
     alt-ctrl-i = "resize up"
     alt-ctrl-j = "resize left"
     alt-ctrl-k = "resize down"
     alt-ctrl-l = "resize right"
+    alt-ctrl-0 = "resize reset"
 
     # Displays
     alt-shift-left = "move-to-display left"

@@ -26,7 +26,7 @@ import Foundation
         t.remove(w(2))
         #expect(t.root!.isStack)
         #expect(t.root!.windows == [w(1)])
-        #expect(t.root!.weight == 1)
+        #expect(t.root!.size == .default)
     }
 
     @Test func RemoveFromStackReturnsNewTop() {
@@ -45,9 +45,21 @@ import Foundation
         var t = Tree(root: Node(split: .horizontal, children: [Node(stack: [w(1)]), inner]))
         t.normalize()
         #expect(t.root!.children.count == 3)
-        let total = t.root!.children.map(\.weight).reduce(0, +)
-        #expect(abs(total - 1) <= 1e-9)
-        #expect(abs((t.root!.children[1].weight) - (0.25)) <= 1e-9)
+        #expect(t.root!.children.allSatisfy { $0.size == .default })
+        let f = LayoutEngine.frames(t, in: CGRect(x: 0, y: 0, width: 900, height: 600))
+        #expect(f[w(2)]!.width == 300)
+    }
+
+    @Test func NormalizeFlatteningFixedGroupHandsOutItsLength() {
+        // A fixed(400) inner group with one fixed(100) + one flex child → flex child becomes fixed(300).
+        let a = Node(stack: [w(2)]); a.size = .fixed(100)
+        let b = Node(stack: [w(3)])
+        let inner = Node(split: .horizontal, children: [a, b]); inner.size = .fixed(400)
+        var t = Tree(root: Node(split: .horizontal, children: [Node(stack: [w(1)]), inner]))
+        t.normalize()
+        #expect(t.root!.children.count == 3)
+        #expect(t.root!.children[1].size == .fixed(100))
+        #expect(t.root!.children[2].size == .fixed(300))
     }
 
     // MARK: move — leave stack
@@ -58,7 +70,7 @@ import Foundation
         #expect(r6 == .moved)
         #expect(t.root!.orientation == .horizontal)
         #expect(columns(t) == [[w(1)], [w(2)]])
-        #expect(abs((t.root!.children[0].weight) - (0.5)) <= 1e-9)
+        #expect(t.root!.children.allSatisfy { $0.size == .default })
     }
 
     @Test func MoveOutOfStackToLeftPrepends() {
@@ -131,34 +143,66 @@ import Foundation
 
     // MARK: resize
 
-    @Test func ResizeExchangesWithNeighborAndClamps() {
+    @Test func ResizeFixesChildAndFlexPartnerAbsorbs() {
         var t = Tree(root: Node(split: .horizontal, children: [Node(stack: [w(1)]), Node(stack: [w(2)])]))
-        t.normalize()
-        let r17 = t.resize(w(1), .right, step: 0.1)
+        let r17 = t.resize(w(1), .right, step: 0.1, in: screen)
         #expect(r17)
-        #expect(abs((t.root!.children[0].weight) - (0.6)) <= 1e-9)
-        #expect(abs((t.root!.children[1].weight) - (0.4)) <= 1e-9)
-        for _ in 0..<10 { _ = t.resize(w(1), .right, step: 0.1) }
-        #expect(abs((t.root!.children[1].weight) - (0.1)) <= 1e-9)
-        let r18 = t.resize(w(1), .right, step: 0.1)
+        #expect(t.root!.children[0].size == .fixed(600))
+        #expect(t.root!.children[1].size == .default)
+        let f = LayoutEngine.frames(t, in: screen)
+        #expect(f[w(2)]!.width == 400)
+        // Keeps going until the partner hits the minimum, then refuses.
+        for _ in 0..<10 { _ = t.resize(w(1), .right, step: 0.1, in: screen) }
+        #expect(LayoutEngine.frames(t, in: screen)[w(2)]!.width == Tree.minimumLength)
+        let r18 = t.resize(w(1), .right, step: 0.1, in: screen)
         #expect(!r18)
-        let r19 = t.resize(w(1), .left, step: 0.1)
+        let r19 = t.resize(w(1), .left, step: 0.1, in: screen)
         #expect(r19)
-        #expect(abs((t.root!.children[0].weight) - (0.8)) <= 1e-9)
+        #expect(t.root!.children[0].size == .fixed(850))
+    }
+
+    @Test func ResizeAgainstFixedPartnerMovesBoth() {
+        let a = Node(stack: [w(1)]); a.size = .fixed(500)
+        let b = Node(stack: [w(2)]); b.size = .fixed(500)
+        var t = Tree(root: Node(split: .horizontal, children: [a, b]))
+        let ok = t.resize(w(1), .right, step: 0.1, in: screen)
+        #expect(ok)
+        #expect(a.size == .fixed(600))
+        #expect(b.size == .fixed(400))
     }
 
     @Test func ResizeWithoutMatchingSplitFails() {
         var t = Tree(root: Node(split: .horizontal, children: [Node(stack: [w(1)]), Node(stack: [w(2)])]))
-        let r20 = t.resize(w(1), .down, step: 0.1)
+        let r20 = t.resize(w(1), .down, step: 0.1, in: screen)
         #expect(!r20)
     }
 
     @Test func ResizeLastChildUsesPreviousSibling() {
         var t = Tree(root: Node(split: .horizontal, children: [Node(stack: [w(1)]), Node(stack: [w(2)])]))
-        t.normalize()
-        let r21 = t.resize(w(2), .right, step: 0.1)
+        let r21 = t.resize(w(2), .right, step: 0.1, in: screen)
         #expect(r21)
-        #expect(abs((t.root!.children[1].weight) - (0.6)) <= 1e-9)
+        #expect(t.root!.children[1].size == .fixed(600))
+        #expect(LayoutEngine.frames(t, in: screen)[w(1)]!.width == 400)
+    }
+
+    @Test func ResetSizeReturnsToFlex() {
+        var t = Tree(root: Node(split: .horizontal, children: [Node(stack: [w(1)]), Node(stack: [w(2)])]))
+        _ = t.resize(w(1), .right, step: 0.2, in: screen)
+        #expect(t.root!.children[0].size.isFixed)
+        let r = t.resetSize(w(1))
+        #expect(r)
+        #expect(t.root!.children[0].size == .default)
+        #expect(LayoutEngine.frames(t, in: screen)[w(1)]!.width == 500)
+    }
+
+    @Test func NewWindowsAreFlexAndShareTheRemainder() {
+        var t = Tree(root: Node(split: .horizontal, children: [Node(stack: [w(1)]), Node(stack: [w(2)])]))
+        _ = t.resize(w(1), .right, step: 0.3, in: screen)      // w1 fixed(800)
+        t.insert(w(3), atEdge: .right)
+        let f = LayoutEngine.frames(t, in: screen)
+        #expect(f[w(1)]!.width == 800)
+        #expect(f[w(2)]!.width == 100)
+        #expect(f[w(3)]!.width == 100)
     }
 
     // MARK: misc
@@ -172,10 +216,12 @@ import Foundation
     }
 
     @Test func ToggleOrientation() {
-        var t = Tree(root: Node(split: .horizontal, children: [Node(stack: [w(1)]), Node(stack: [w(2)])]))
+        let a = Node(stack: [w(1)]); a.size = .fixed(300)
+        var t = Tree(root: Node(split: .horizontal, children: [a, Node(stack: [w(2)])]))
         let r24 = t.toggleParentOrientation(w(1))
         #expect(r24)
         #expect(t.root!.orientation == .vertical)
+        #expect(a.size == .default)   // a fixed width makes no sense as a height
         var single = Tree(root: Node(stack: [w(1)]))
         let r25 = single.toggleParentOrientation(w(1))
         #expect(!r25)
@@ -226,18 +272,19 @@ import Foundation
 }
 
 @Suite struct ResizeEdgeTests {
-    @Test func draggingSharedEdgeReweightsSplit() {
+    @Test func draggingSharedEdgeFixesTheDraggedTile() {
         var t = Tree(root: Node(split: .horizontal, children: [Node(stack: [w(1)]), Node(stack: [w(2)])]))
-        t.normalize()
-        // Drag w1's right edge 100px right on a 1000px-wide display → 60/40.
+        // Drag w1's right edge 100px right on a 1000px-wide display → w1 fixed(600), w2 flex → 400.
         let r = t.resizeEdge(w(1), edge: .right, by: 100, in: screen)
         #expect(r)
-        #expect(abs(t.root!.children[0].weight - 0.6) < 1e-9)
-        #expect(abs(t.root!.children[1].weight - 0.4) < 1e-9)
-        // Drag w2's left edge 100px left → w2 grows back to 50/50.
+        #expect(t.root!.children[0].size == .fixed(600))
+        #expect(t.root!.children[1].size == .default)
+        #expect(LayoutEngine.frames(t, in: screen)[w(2)]!.width == 400)
+        // Drag w2's left edge 100px left → w2 fixed(500); w1 (fixed) gives the 100 back.
         let r2 = t.resizeEdge(w(2), edge: .left, by: -100, in: screen)
         #expect(r2)
-        #expect(abs(t.root!.children[0].weight - 0.5) < 1e-9)
+        #expect(t.root!.children[1].size == .fixed(500))
+        #expect(t.root!.children[0].size == .fixed(500))
     }
     @Test func displayBoundaryEdgeIsRejected() {
         var t = Tree(root: Node(split: .horizontal, children: [Node(stack: [w(1)]), Node(stack: [w(2)])]))
@@ -250,18 +297,17 @@ import Foundation
         // [ v[A, B] | C ]: dragging A's right edge resizes the outer horizontal split.
         let col = Node(split: .vertical, children: [Node(stack: [w(1)]), Node(stack: [w(2)])])
         var t = Tree(root: Node(split: .horizontal, children: [col, Node(stack: [w(3)])]))
-        t.normalize()
         let r = t.resizeEdge(w(1), edge: .right, by: 200, in: screen)
         #expect(r)
-        #expect(abs(t.root!.children[0].weight - 0.7) < 1e-9)
+        #expect(col.size == .fixed(700))
         let f = LayoutEngine.frames(t, in: screen)
         #expect(f[w(1)]!.width == 700)
         #expect(f[w(2)]!.width == 700)
+        #expect(f[w(3)]!.width == 300)
     }
     @Test func clampsToMinimum() {
         var t = Tree(root: Node(split: .horizontal, children: [Node(stack: [w(1)]), Node(stack: [w(2)])]))
-        t.normalize()
         _ = t.resizeEdge(w(1), edge: .right, by: 900, in: screen)
-        #expect(abs(t.root!.children[1].weight - 0.1) < 1e-9)
+        #expect(LayoutEngine.frames(t, in: screen)[w(2)]!.width == Tree.minimumLength)
     }
 }

@@ -14,14 +14,26 @@ public struct WindowID: Hashable, Sendable, CustomStringConvertible {
     public var description: String { "\(pid):\(cgID)" }
 }
 
+/// How a split child is sized along its parent's axis.
+public enum SizeSpec: Equatable, Sendable {
+    /// Shares what is left after fixed siblings, proportionally to the weight (default 1).
+    case flex(CGFloat)
+    /// Exactly this many points. Set by a manual resize.
+    case fixed(CGFloat)
+
+    public static let `default` = SizeSpec.flex(1)
+
+    public var isFixed: Bool { if case .fixed = self { return true } else { return false } }
+}
+
 /// A node in the layout tree. Either a *split* (has `orientation` and `children`)
 /// or a *stack* (has `windows`, one of which is on `top`).
 ///
 /// Nodes are reference types so that operations can walk parent pointers.
 public final class Node {
     public private(set) weak var parent: Node?
-    /// Share of the parent's extent along the parent's axis.
-    public var weight: CGFloat = 1
+    /// Size along the parent's axis.
+    public var size: SizeSpec = .default
 
     /// `nil` for stacks.
     public var orientation: Orientation?
@@ -74,7 +86,7 @@ public final class Node {
         new.parent?.detach(new)
         old.parent = nil
         new.parent = self
-        new.weight = old.weight
+        new.size = old.size
         children[i] = new
     }
 
@@ -132,11 +144,10 @@ public struct Tree {
     /// - no empty stacks, no empty splits
     /// - a split with one child is replaced by that child
     /// - a split nested inside a split of the same orientation is flattened
-    /// - weights in each split sum to 1
     public mutating func normalize() {
         guard let r = root else { return }
         root = Tree.normalize(r)
-        root?.weight = 1
+        root?.size = .default
     }
 
     private static func normalize(_ node: Node) -> Node? {
@@ -153,27 +164,27 @@ public struct Tree {
                 node.detach(c)
             }
         }
-        // Flatten same-orientation children.
+        // Flatten same-orientation children. Grandchildren keep their specs, except that a
+        // fixed group hands its length out to its flex members so the group still occupies it.
         for c in Array(node.children) where c.isSplit && c.orientation == node.orientation {
             guard let idx = node.index(of: c) else { continue }
-            let total = c.children.map(\.weight).reduce(0, +)
             let grand = Array(c.children)
-            node.detach(c)
-            for (k, g) in grand.enumerated() {
-                let share = total > 0 ? g.weight / total : 1 / CGFloat(grand.count)
-                g.weight = c.weight * share
-                node.insertChild(g, at: idx + k)
+            if case .fixed(let f) = c.size {
+                let fixedSum = grand.reduce(CGFloat(0)) { if case .fixed(let v) = $1.size { return $0 + v } else { return $0 } }
+                let flexSum = grand.reduce(CGFloat(0)) { if case .flex(let v) = $1.size { return $0 + v } else { return $0 } }
+                let spare = max(0, f - fixedSum)
+                for g in grand { if case .flex(let v) = g.size { g.size = .fixed(flexSum > 0 ? spare * v / flexSum : spare / CGFloat(grand.count)) } }
             }
+            node.detach(c)
+            for (k, g) in grand.enumerated() { node.insertChild(g, at: idx + k) }
         }
         if node.children.isEmpty { return nil }
         if node.children.count == 1 {
             let only = node.children[0]
             node.detach(only)
-            only.weight = node.weight
+            only.size = node.size
             return only
         }
-        let total = node.children.map(\.weight).reduce(0, +)
-        if total > 0 { for c in node.children { c.weight /= total } }
         return node
     }
 }

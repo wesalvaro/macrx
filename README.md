@@ -42,7 +42,8 @@ Command Line Tools ship but SwiftPM needs a few flags to find — see the Justfi
 |---|---|
 | `⌥ i/k/j/l` | focus up/down/left/right |
 | `⌥⇧ i/k/j/l` | move window (see below) |
-| `⌥⌃ i/k/j/l` | resize up/down/left/right |
+| `⌥⌃ i/k/j/l` | resize up/down/left/right (the tile becomes fixed-size; the others share the rest) |
+| `⌥⌃ 0` | reset the focused tile to flexible sizing |
 | `⌥ u` / `⌥ o` | previous/next window in stack |
 | `⌥⇧ ← ↓ ↑ →` | move window to the display in that direction |
 | `⌥⌃ ← ↓ ↑ →` | move the whole workspace to that display (swapping with what it shows) |
@@ -64,6 +65,18 @@ Command Line Tools ship but SwiftPM needs a few flags to find — see the Justfi
 | Window is alone, at the display edge, and another display lies that way | Moves to that display |
 
 So with `[A][B][C]`, pressing `move left` twice on B gives `[B][A][C]`.
+
+### How sizing works
+
+Tiles in a split are **flexible** by default and share the space equally. Resizing a tile
+(keyboard or dragging its edge) gives it a **fixed** size; the remaining flexible tiles share
+what is left. `resize reset` makes a tile flexible again, and toggling a split's orientation
+resets its children (a fixed width rarely makes sense as a height).
+
+Apps that refuse to grow past a certain size (System Settings, Calculator…) are measured as they
+are placed. When *every* window in a tile is capped along an axis, the tile shrinks to the largest
+cap and its neighbours take the freed space — so no desktop shows through. As soon as an
+unconstrained window joins that tile (or a new one opens there), it springs back to full size.
 
 ## Configuration
 
@@ -96,7 +109,7 @@ title-regex = "^(Copy|Move|Trash)"
 float = true
 ```
 
-Commands: `focus <dir>`, `move <dir>`, `resize <dir>`, `stack next|prev`,
+Commands: `focus <dir>`, `move <dir>`, `resize <dir>`, `resize reset`, `stack next|prev`,
 `move-to-display <dir>`, `move-workspace-to-display <dir>`, `workspace <n>`, `workspace back-and-forth`, `move-to-workspace <n>`, `fullscreen`,
 `float`, `toggle-orientation`, `reload`, `quit`. Directions are `left|right|up|down`.
 
@@ -109,7 +122,7 @@ Every window is tiled by default. Rules match on `app-id` (bundle identifier) an
 `title-regex`; set `float = true` to keep a window out of the layout (it keeps its own
 frame and ordinary macOS stacking) or `ignore = true` to leave it entirely alone.
 `⌥⇧space` toggles floating for the focused window at runtime. Fixed-size windows are
-tiled too and sit centred in their tile.
+tiled too; see "How sizing works" above.
 
 ## Known limitations
 
@@ -121,6 +134,6 @@ tiled too and sit centred in their tile.
 - A top window that refuses the tile size (minimum/fixed size) sits under its tab, and when
   focused with the mouse it moves to sit under the pointer; the windows behind it in the
   stack remain visible around it.
-- Apps that enforce a minimum (or fixed) window size will be smaller than their tile, centred in it.
+- A tile that mixes size-capped and free windows keeps its full size; the capped windows sit centred in it (or under their tab) while behind the top window.
 - Floating windows drop behind tiles once a tile is focused (the AX API cannot keep an
   inactive app's window on top); use ⌘-Tab or click to bring one back.

@@ -69,17 +69,27 @@ extension CGRect {
         let total = weights.reduce(0, +)
         guard total > 0 else { return weights.map { _ in self } }
         let length = orientation == .horizontal ? width : height
+        return split(orientation, lengths: weights.map { length * $0 / total })
+    }
+
+    /// Splits the rect along `orientation` into pieces of the given absolute lengths.
+    /// Boundaries are pixel-snapped; if the lengths add up to the rect's extent the last piece
+    /// absorbs the rounding, otherwise the shortfall is left empty at the end.
+    public func split(_ orientation: Orientation, lengths: [CGFloat]) -> [CGRect] {
+        guard !lengths.isEmpty else { return [] }
+        let length = orientation == .horizontal ? width : height
         var result: [CGRect] = []
         var acc: CGFloat = 0
         var start: CGFloat = 0
-        for (i, w) in weights.enumerated() {
-            acc += w
-            let end = i == weights.count - 1 ? length : (length * acc / total).rounded()
+        for (i, l) in lengths.enumerated() {
+            acc += l
+            let isLast = i == lengths.count - 1
+            let end = (isLast && abs(acc - length) < 1) ? length : min(length, acc.rounded())
             switch orientation {
             case .horizontal:
-                result.append(CGRect(x: minX + start, y: minY, width: end - start, height: height))
+                result.append(CGRect(x: minX + start, y: minY, width: max(0, end - start), height: height))
             case .vertical:
-                result.append(CGRect(x: minX, y: minY + start, width: width, height: end - start))
+                result.append(CGRect(x: minX, y: minY + start, width: width, height: max(0, end - start)))
             }
             start = end
         }

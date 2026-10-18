@@ -18,45 +18,150 @@ public struct Tile: Equatable {
 }
 
 public enum LayoutEngine {
+    public typealias TabBarHeight = (Int) -> CGFloat
+    /// Largest size a window accepts (`.infinity` on a free axis), or nil if unknown/unconstrained.
+    public typealias MaxSize = (WindowID) -> CGSize?
+
     /// Computes tiles for `tree` laid out inside `rect`.
-    /// - Parameter tabBarHeight: the height of the tab bar for a stack of the given window count
-    ///   (return 0 to hide it).
+    /// - Parameters:
+    ///   - tabBarHeight: the height of the tab bar for a stack of the given window count (0 hides it).
+    ///   - maxSize: per-window size caps; a stack whose windows are *all* capped along an axis is
+    ///     laid out no larger than the largest cap, and its siblings take the freed space.
     public static func tiles(
         _ tree: Tree,
         in rect: CGRect,
-        tabBarHeight: (Int) -> CGFloat = { _ in 0 }
+        tabBarHeight: @escaping TabBarHeight = { _ in 0 },
+        maxSize: @escaping MaxSize = { _ in nil }
     ) -> [Tile] {
         guard let root = tree.root else { return [] }
         var out: [Tile] = []
-        layout(root, in: rect, tabBarHeight: tabBarHeight, into: &out)
+        let ctx = Context(tabBarHeight: tabBarHeight, maxSize: maxSize)
+        layout(root, in: rect, ctx: ctx, into: &out)
         return out
     }
 
-    private static func layout(
-        _ node: Node, in rect: CGRect,
-        tabBarHeight: (Int) -> CGFloat, into out: inout [Tile]
-    ) {
+    struct Context {
+        let tabBarHeight: TabBarHeight
+        let maxSize: MaxSize
+    }
+
+    private static func layout(_ node: Node, in rect: CGRect, ctx: Context, into out: inout [Tile]) {
         if node.isStack {
             guard let top = node.topWindow else { return }
-            let h = min(max(0, tabBarHeight(node.windows.count)), rect.height)
+            let h = min(max(0, ctx.tabBarHeight(node.windows.count)), rect.height)
             let bar = CGRect(x: rect.minX, y: rect.minY, width: rect.width, height: h)
             let content = CGRect(x: rect.minX, y: rect.minY + h, width: rect.width, height: rect.height - h)
             out.append(Tile(stackID: node.id, frame: rect, tabBar: bar, content: content, windows: node.windows, top: top))
             return
         }
-        let pieces = rect.split(node.orientation!, weights: node.children.map(\.weight))
-        for (child, piece) in zip(node.children, pieces) {
-            layout(child, in: piece, tabBarHeight: tabBarHeight, into: &out)
+        for (child, piece) in zip(node.children, pieces(of: node, in: rect, ctx: ctx)) {
+            layout(child, in: piece, ctx: ctx, into: &out)
         }
     }
 
+    private static func pieces(of split: Node, in rect: CGRect, ctx: Context) -> [CGRect] {
+        let o = split.orientation!
+        let total = o == .horizontal ? rect.width : rect.height
+        let caps = split.children.map { maxExtent($0, o, ctx: ctx) }
+        let lengths = resolve(total: total, specs: split.children.map(\.size), caps: caps)
+        return rect.split(o, lengths: lengths)
+    }
+
+    /// Largest extent the subtree can use along `o`, or nil when unconstrained.
+    /// A stack is constrained only if *every* window in it is (so no member ever has desktop
+    /// showing through around it); a split only if every child is.
+    static func maxExtent(_ node: Node, _ o: Orientation, ctx: Context) -> CGFloat? {
+        if node.isStack {
+            var cap: CGFloat = 0
+            for w in node.windows {
+                guard let s = ctx.maxSize(w) else { return nil }
+                let v = o == .horizontal ? s.width : s.height
+                guard v.isFinite else { return nil }
+                cap = max(cap, v)
+            }
+            return o == .vertical ? cap + max(0, ctx.tabBarHeight(node.windows.count)) : cap
+        }
+        var kids: [CGFloat] = []
+        for c in node.children {
+            guard let k = maxExtent(c, o, ctx: ctx) else { return nil }
+            kids.append(k)
+        }
+        return node.orientation == o ? kids.reduce(0, +) : (kids.max() ?? 0)
+    }
+
+    /// Resolves child lengths along one axis.
+    /// - fixed children get their size; flex children share the remainder by weight;
+    /// - `caps` (auto size caps) bound a child from above, the slack going to flex siblings;
+    /// - over-commitment scales fixed children down; with no flex children, fixed ones scale up
+    ///   to fill (capped children never grow past their cap, so a split of only capped children
+    ///   may leave space empty — that is the whole point).
+    public static func resolve(total: CGFloat, specs: [SizeSpec], caps: [CGFloat?]) -> [CGFloat] {
+        let n = specs.count
+        guard n > 0 else { return [] }
+        guard total > 0 else { return Array(repeating: 0, count: n) }
+        let caps = caps.count == n ? caps : Array(repeating: nil, count: n)
+
+        // Children pinned to a cap are removed from the flexible pool; iterate until stable.
+        var pinned: [CGFloat?] = Array(repeating: nil, count: n)
+        for _ in 0...n {
+            var out = Array(repeating: CGFloat(0), count: n)
+            var remaining = total
+            var fixedIdx: [Int] = [], flexIdx: [Int] = []
+            var fixedSum: CGFloat = 0, flexSum: CGFloat = 0
+            for i in 0..<n {
+                if let p = pinned[i] { out[i] = p; remaining -= p; continue }
+                switch specs[i] {
+                case .fixed(let v): out[i] = max(0, v); fixedSum += out[i]; fixedIdx.append(i)
+                case .flex(let w): flexSum += max(0, w); flexIdx.append(i)
+                }
+            }
+            remaining = max(0, remaining)
+            if fixedSum > remaining, fixedSum > 0 {
+                // Over-committed: shrink fixed proportionally, flex gets nothing.
+                let s = remaining / fixedSum
+                for i in fixedIdx { out[i] *= s }
+            } else {
+                var spare = remaining - fixedSum
+                if !flexIdx.isEmpty {
+                    if flexSum > 0 {
+                        for i in flexIdx { out[i] = spare * max(0, flexWeight(specs[i])) / flexSum }
+                    } else {
+                        for i in flexIdx { out[i] = spare / CGFloat(flexIdx.count) }
+                    }
+                    spare = 0
+                } else if !fixedIdx.isEmpty, spare > 0 {
+                    // Nothing flexible: fixed children scale up to fill.
+                    let s = (fixedSum + spare) / fixedSum
+                    for i in fixedIdx { out[i] *= s }
+                    spare = 0
+                }
+            }
+            // Pin anything that exceeds its cap and go again; otherwise done.
+            var changed = false
+            for i in 0..<n where pinned[i] == nil {
+                if let c = caps[i], out[i] > c + 0.5 { pinned[i] = c; changed = true }
+            }
+            if !changed { return out }
+        }
+        return Array(repeating: total / CGFloat(n), count: n)
+    }
+
+    private static func flexWeight(_ s: SizeSpec) -> CGFloat {
+        if case .flex(let w) = s { return w } else { return 0 }
+    }
+
     /// Frame of every node (splits and stacks) when `tree` is laid out in `rect`.
-    public static func nodeFrames(_ tree: Tree, in rect: CGRect) -> [ObjectIdentifier: CGRect] {
+    public static func nodeFrames(
+        _ tree: Tree, in rect: CGRect,
+        tabBarHeight: @escaping TabBarHeight = { _ in 0 },
+        maxSize: @escaping MaxSize = { _ in nil }
+    ) -> [ObjectIdentifier: CGRect] {
         var out: [ObjectIdentifier: CGRect] = [:]
+        let ctx = Context(tabBarHeight: tabBarHeight, maxSize: maxSize)
         func walk(_ node: Node, _ r: CGRect) {
             out[node.id] = r
             guard node.isSplit else { return }
-            for (child, piece) in zip(node.children, r.split(node.orientation!, weights: node.children.map(\.weight))) {
+            for (child, piece) in zip(node.children, pieces(of: node, in: r, ctx: ctx)) {
                 walk(child, piece)
             }
         }
@@ -66,10 +171,12 @@ public enum LayoutEngine {
 
     /// Convenience: content frame per window.
     public static func frames(
-        _ tree: Tree, in rect: CGRect, tabBarHeight: (Int) -> CGFloat = { _ in 0 }
+        _ tree: Tree, in rect: CGRect,
+        tabBarHeight: @escaping TabBarHeight = { _ in 0 },
+        maxSize: @escaping MaxSize = { _ in nil }
     ) -> [WindowID: CGRect] {
         var map: [WindowID: CGRect] = [:]
-        for t in tiles(tree, in: rect, tabBarHeight: tabBarHeight) {
+        for t in tiles(tree, in: rect, tabBarHeight: tabBarHeight, maxSize: maxSize) {
             for w in t.windows { map[w] = t.content }
         }
         return map

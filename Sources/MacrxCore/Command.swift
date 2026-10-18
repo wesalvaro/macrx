@@ -6,6 +6,8 @@ public enum Command: Equatable, Sendable {
     case focus(Direction)
     case move(Direction)
     case resize(Direction)
+    /// Return the focused tile to flexible (equal-share) sizing.
+    case resizeReset
     case stack(Int)                    // cycle within stack by delta
     case moveToDisplay(Direction)
     case moveWorkspaceToDisplay(Direction)
@@ -30,7 +32,9 @@ public enum Command: Equatable, Sendable {
         switch (verb, parts.count) {
         case ("focus", 2):            guard let d = dir() else { return nil }; self = .focus(d)
         case ("move", 2):             guard let d = dir() else { return nil }; self = .move(d)
-        case ("resize", 2):           guard let d = dir() else { return nil }; self = .resize(d)
+        case ("resize", 2):
+            if arg == "reset" { self = .resizeReset; return }
+            guard let d = dir() else { return nil }; self = .resize(d)
         case ("move-to-display", 2):  guard let d = dir() else { return nil }; self = .moveToDisplay(d)
         case ("move-workspace-to-display", 2): guard let d = dir() else { return nil }; self = .moveWorkspaceToDisplay(d)
         case ("workspace", 2):

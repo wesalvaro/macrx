@@ -24,6 +24,10 @@ final class WindowManager {
     private var desiredFrames: [WindowID: CGRect] = [:]
     /// Frames actually achieved for windows that refused their tile size (centered in the tile).
     private var effectiveFrames: [WindowID: CGRect] = [:]
+    /// Largest size each window has accepted along an axis it clamps (`.infinity` on a free axis).
+    /// Fed to the layout engine so a tile of only size-capped windows shrinks to fit them.
+    private var observedMax: [WindowID: CGSize] = [:]
+    private var relayoutPending = false
     /// The tab rect of each window in a tab bar; size-constrained windows are anchored under it.
     private var tabAnchors: [WindowID: CGRect] = [:]
     private var verifyScheduled = false
@@ -155,6 +159,7 @@ final class WindowManager {
         titles[id] = nil
         lastApplied[id] = nil
         effectiveFrames[id] = nil
+        observedMax[id] = nil
         parked.remove(id)
         applyLayout()
         if wasFocused, let r = replacement { focus(r) }
@@ -359,8 +364,13 @@ final class WindowManager {
         case .focus(let dir): focusNeighbor(dir)
         case .move(let dir): moveFocused(dir)
         case .resize(let dir):
+            guard let w = model.focused, let ws = model.workspace(containing: w), let d = model.display(ws.displayID) else { return }
+            let caps = observedMax
+            model.update(ws.id) { $0.tree.resize(w, dir, step: CGFloat(config.resizeStep), in: d.frame, maxSize: { caps[$0] }) }
+            applyLayout()
+        case .resizeReset:
             guard let w = model.focused, let ws = model.workspace(containing: w) else { return }
-            model.update(ws.id) { $0.tree.resize(w, dir, step: CGFloat(config.resizeStep)) }
+            model.update(ws.id) { $0.tree.resetSize(w) }
             applyLayout()
         case .stack(let delta):
             // All visible tabs, across tiles and displays, behave as one long tab strip:
@@ -592,11 +602,13 @@ final class WindowManager {
     }
 
     func applyLayout() {
+        relayoutPending = false
         var desired: [WindowID: CGRect] = [:]
         var anchors: [WindowID: CGRect] = [:]
         var toPark: Set<WindowID> = []
         var newTiles: [(tile: Tile, display: DisplayID)] = []
         var fullscreenDisplays: Set<DisplayID> = []
+        let caps = observedMax
 
         let activePid = model.focused?.pid
         for display in model.displays {
@@ -606,7 +618,7 @@ final class WindowManager {
                     ws.allWindows.forEach { toPark.insert($0) }
                     continue
                 }
-                let ts = LayoutEngine.tiles(ws.tree, in: display.frame, tabBarHeight: tabBarHeight)
+                let ts = LayoutEngine.tiles(ws.tree, in: display.frame, tabBarHeight: tabBarHeight, maxSize: { caps[$0] })
                 for t in ts {
                     desired[t.top] = t.content
                     for w in t.windows where w != t.top {
@@ -655,6 +667,13 @@ final class WindowManager {
 
         raiseStackTops()
         updateStatusBar()
+        // A window just told us (via place) how big it can really get: lay out once more so its
+        // tile shrinks to fit and the neighbours take the rest. One extra pass at most.
+        if relayoutPending, observedMax != caps {
+            log("size caps changed; re-laying out")
+            applyLayout()
+        }
+        relayoutPending = false
     }
 
     private func updateStatusBar() {
@@ -701,6 +720,7 @@ final class WindowManager {
     private func place(_ ax: AXWindow, in rect: CGRect) -> CGRect {
         ax.setFrame(rect)
         guard let actual = ax.frame else { return rect }
+        noteAcceptedSize(actual.size, requested: rect.size, for: ax.id)
         if abs(actual.width - rect.width) > 2 || abs(actual.height - rect.height) > 2 {
             let placed: CGRect
             if ax.id == model.focused {
@@ -725,6 +745,28 @@ final class WindowManager {
         }
         effectiveFrames[ax.id] = nil
         return rect
+    }
+
+    /// Records the size an app actually accepted. An axis that came back smaller than requested
+    /// is a cap; an axis the app filled is free. A previously capped axis that now fills is freed
+    /// again, and a cap grows if the app accepts more than we had recorded. Coming back *larger*
+    /// than requested is a minimum-size constraint and says nothing about the maximum.
+    private func noteAcceptedSize(_ actual: CGSize, requested: CGSize, for id: WindowID) {
+        let old = observedMax[id]
+        func axis(_ got: CGFloat, _ asked: CGFloat, _ previous: CGFloat?) -> CGFloat {
+            if got < asked - 2 { return got }                          // clamped: that's the cap
+            if got > asked + 2 { return previous ?? .infinity }         // hit a minimum: keep what we knew
+            if let p = previous, p.isFinite, abs(asked - p) <= 2 { return p }  // got exactly the cap we asked for
+            return .infinity                                            // filled a larger request: free
+        }
+        let new = CGSize(width: axis(actual.width, requested.width, old?.width),
+                         height: axis(actual.height, requested.height, old?.height))
+        let value: CGSize? = (new.width.isFinite || new.height.isFinite) ? new : nil
+        if value != old {
+            observedMax[id] = value
+            relayoutPending = true
+            log("size cap \(id): \(value.map { "\(Int($0.width.isFinite ? $0.width : -1))×\(Int($0.height.isFinite ? $0.height : -1))" } ?? "none")")
+        }
     }
 
     /// After an app moves/resizes its own window, put it back where the layout wants it.
@@ -760,13 +802,16 @@ final class WindowManager {
         for id in ids {
             guard let ax = axWindows[id], let have = ax.frame, let want = desiredFrames[id],
                   let ws = model.workspace(containing: id), let display = model.display(ws.displayID) else { continue }
+            // The user may have pulled the window past a size we thought was its limit: re-measure.
+            observedMax[id] = nil
             let edges: [(Direction, CGFloat)] = [
                 (.left, have.minX - want.minX), (.right, have.maxX - want.maxX),
                 (.up, have.minY - want.minY), (.down, have.maxY - want.maxY),
             ]
             for (edge, delta) in edges where abs(delta) >= 2 {
                 var ok = false
-                model.update(ws.id) { ok = $0.tree.resizeEdge(id, edge: edge, by: delta, in: display.frame) }
+                let caps = observedMax
+                model.update(ws.id) { ok = $0.tree.resizeEdge(id, edge: edge, by: delta, in: display.frame, maxSize: { caps[$0] }) }
                 if ok { changed = true; log("mouse resize \(id) \(edge) by \(Int(delta))") }
             }
             lastApplied[id] = nil  // force re-apply even if the tile didn't change (snap back)

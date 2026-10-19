@@ -43,6 +43,29 @@ On first launch macOS asks you to grant **Accessibility** access
 `just test` runs the unit tests for the layout core (uses Swift Testing, which the
 Command Line Tools ship but SwiftPM needs a few flags to find — see the Justfile).
 
+### Install with Nix (nix-darwin)
+
+The repo is a flake with a package and a nix-darwin module. Add it as an input (don't make
+it follow your nixpkgs: the binary cache at `macrx.cachix.org` is built against the pinned one)
+and enable the agent:
+
+```nix
+inputs.macrx.url = "github:wesalvaro/macrx";
+# in a darwin module:
+imports = [ inputs.macrx.darwinModules.default ];
+services.macrx.enable = true;
+```
+
+The package builds with the host's Command Line Tools (nixpkgs' Swift is too old and has no
+AppKit), so it is impure and needs `sandbox = false` (nix-darwin's default); with the cache
+trusted (`nixConfig` in `flake.nix`) you normally get the pushed binary instead. The agent is
+`org.nixos.macrx`; `just uninstall` a hand-installed `dev.macrx.macrx` first. The build is
+ad-hoc signed, so each new version asks for Accessibility again. `just push` builds and pushes
+to cachix.
+
+If `~/.config/macrx/config.toml` is itself managed by Nix (home-manager's `xdg.configFile`),
+rules added from the UI still work: they go to `rules.toml` next to it (see Configuration).
+
 ## Default keybindings
 
 | Keys | Command |

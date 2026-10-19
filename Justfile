@@ -51,3 +51,11 @@ logs:
 
 clean:
     rm -rf .build
+
+# Nix: the flake builds the same binary with the host's toolchain (see nix/macrx.nix).
+nix-build:
+    nix build .#macrx -L
+
+# Build and push to cachix so other machines get the binary. Needs a one-time `cachix authtoken`.
+push: nix-build
+    nix run nixpkgs#cachix -- push macrx ./result

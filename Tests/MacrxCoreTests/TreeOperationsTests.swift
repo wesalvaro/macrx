@@ -30,14 +30,17 @@ import Foundation
     }
 
     @Test func RemoveFromStackReturnsNewTop() {
-        var t = Tree(root: Node(stack: [w(1), w(2), w(3)], top: 2))
-        let r3 = t.remove(w(3))
-        #expect(r3 == w(2))
-        let r4 = t.remove(w(1))
-        #expect(r4 == w(2))
-        let r5 = t.remove(w(2))
-        #expect(r5 == nil)
+        // Removing a middle focused tab selects the next tab (now at the same index),
+        // and removing the last tab clamps to the new end.
+        var t = Tree(root: Node(stack: [w(1), w(2), w(3)], top: 1))
+        #expect(t.remove(w(2)) == w(3))
+        #expect(t.remove(w(3)) == w(1))
+        #expect(t.remove(w(1)) == nil)
         #expect(t.isEmpty)
+
+        // Removing an unfocused tab before `top` shifts `top` down to stay on the same window.
+        var t2 = Tree(root: Node(stack: [w(1), w(2), w(3)], top: 2))
+        #expect(t2.remove(w(1)) == w(3))
     }
 
     @Test func NormalizeFlattensSameOrientation() {

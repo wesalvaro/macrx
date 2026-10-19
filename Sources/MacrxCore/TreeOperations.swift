@@ -56,7 +56,11 @@ extension Tree {
     public mutating func remove(_ w: WindowID) -> WindowID? {
         guard let s = stack(containing: w), let i = s.windows.firstIndex(of: w) else { return nil }
         s.windows.remove(at: i)
-        if s.top >= i && s.top > 0 { s.top -= 1 }
+        if s.top > i {
+            s.top -= 1
+        } else {
+            s.top = min(s.top, max(0, s.windows.count - 1))
+        }
         let next = s.topWindow
         normalize()
         return next

@@ -257,7 +257,7 @@ final class WindowManager {
         parked.remove(id)
         floatingFrames[id] = nil
         applyLayout()
-        if wasFocused, let r = replacement { focus(r) }
+        if wasFocused, let r = replacement { focus(r, warp: false) }
         log("- \(id)")
     }
 

@@ -163,6 +163,17 @@ public struct Config: Equatable, Sendable {
         return cfg
     }
 
+    /// The rules in a file that holds only `[[rule]]` tables: `rules.toml`, where the rules
+    /// added from the UI go so that `config.toml` can stay read-only (or managed elsewhere).
+    public static func parseRules(_ toml: String) throws -> [Rule] {
+        struct RawRules: Decodable { var rule: [Rule]? }
+        do {
+            return try TOMLDecoder().decode(RawRules.self, from: toml).rule ?? []
+        } catch let e as TOMLParseError {
+            throw ConfigError("TOML syntax error at line \(e.source.begin.line): \(e.description)")
+        }
+    }
+
     private struct RawConfig: Decodable {
         var focusFollowsMouse: Bool?
         var mouseFollowsFocus: Bool?

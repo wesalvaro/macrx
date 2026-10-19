@@ -17,6 +17,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".config")
         return base.appendingPathComponent("macrx/config.toml")
     }()
+    /// Rules added from the UI live here, not in config.toml, so that file can be read-only
+    /// (e.g. a symlink into a dotfiles store). Loaded after config.toml's rules.
+    static let rulesURL = configURL.deletingLastPathComponent().appendingPathComponent("rules.toml")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -60,24 +63,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         log("config reloaded")
     }
 
-    /// Applies `transform` to the config file's text, writes it back and reloads.
+    /// Applies `transform` to rules.toml's text, writes it back and reloads.
     private func editConfig(_ transform: (String) -> String) {
-        let url = Self.configURL
+        let url = Self.rulesURL
         do {
-            let old = (try? String(contentsOf: url, encoding: .utf8)) ?? Config.defaultTOML
+            let old = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
             let new = transform(old)
             guard new != old else { return }
-            _ = try Config.parse(new)  // never write something we can't read back
+            _ = try Config.parseRules(new)  // never write something we can't read back
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             try new.write(to: url, atomically: true, encoding: .utf8)
-            log("config updated")
+            log("rules updated")
             reload()
         } catch {
-            log("could not update config: \(error)")
+            log("could not update rules: \(error)")
         }
     }
 
+    /// config.toml (written with the defaults if missing) plus the UI's rules.toml.
     private func loadConfig() -> Config {
+        var config = loadMainConfig()
+        if let text = try? String(contentsOf: Self.rulesURL, encoding: .utf8) {
+            do {
+                config.rules += try Config.parseRules(text)
+            } catch {
+                log("rules.toml error: \(error) — ignoring it")
+            }
+        }
+        return config
+    }
+
+    private func loadMainConfig() -> Config {
         let url = Self.configURL
         if !FileManager.default.fileExists(atPath: url.path) {
             do {

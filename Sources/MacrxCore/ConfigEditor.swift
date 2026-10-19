@@ -1,7 +1,8 @@
 import Foundation
 
-/// Text-level edits to the user's `config.toml`, so that rules added from the UI land in the
-/// file without disturbing anything the user wrote (comments, ordering, formatting).
+/// Text-level edits to the user's `rules.toml` (a file of `[[rule]]` tables kept apart from
+/// `config.toml`, which may be read-only), so that rules added from the UI land in the file
+/// without disturbing anything the user wrote (comments, ordering, formatting).
 ///
 /// Rules written here carry a marker comment so they can be found and removed again.
 public enum ConfigEditor {

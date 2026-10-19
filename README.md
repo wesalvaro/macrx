@@ -137,7 +137,9 @@ Every window is tiled by default. Rules match on `app-id` (bundle identifier) an
 frame and ordinary macOS stacking) or `ignore = true` to leave it entirely alone.
 `workspace = N` makes new matching windows open on workspace `N` without switching to it
 (like i3's `assign`); the tab bar's context menu has *Always Open <App> on Workspace N*,
-which appends such a rule to the config for you (and *Unlock* removes it again).
+which writes such a rule for you (and *Unlock* removes it again). Rules added that way go
+to `~/.config/macrx/rules.toml`, a file of `[[rule]]` tables loaded after `config.toml`'s
+own rules, so `config.toml` can be read-only (a dotfiles symlink, say) and never gets rewritten.
 `⌥⇧space` toggles floating for the focused window at runtime. Fixed-size windows are
 tiled too; see "How sizing works" above.
 

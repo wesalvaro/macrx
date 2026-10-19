@@ -40,4 +40,16 @@ import Foundation
         #expect(try Config.parse(out).rules.first?.appID == "weird\"id")
         #expect(ConfigEditor.removingWorkspaceRule(from: out, appID: "weird\"id").isEmpty)
     }
+
+    // rules.toml starts empty and holds only [[rule]] tables.
+    @Test func RulesFileRoundTrips() throws {
+        #expect(try Config.parseRules("").isEmpty)
+        let one = ConfigEditor.settingWorkspaceRule(in: "", appID: "com.spotify.client", workspace: 3)
+        let rules = try Config.parseRules(one)
+        #expect(rules.count == 1)
+        #expect(rules[0].appID == "com.spotify.client")
+        #expect(rules[0].workspace == 3)
+        #expect(ConfigEditor.removingWorkspaceRule(from: one, appID: "com.spotify.client").isEmpty)
+        #expect(throws: ConfigError.self) { try Config.parseRules("[[rule]]\napp-id = ") }
+    }
 }

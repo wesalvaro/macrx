@@ -61,20 +61,23 @@ public struct Rule: Codable, Equatable, Sendable {
     public var ignore: Bool = false
     /// The app ignores programmatic key-window changes; focus it by clicking its title bar.
     public var clickToFocus: Bool = false
+    /// New matching windows open on this workspace (without switching to it), like i3's `assign`.
+    public var workspace: Int?
 
-    public init(appID: String? = nil, titleRegex: String? = nil, float: Bool = false, ignore: Bool = false, clickToFocus: Bool = false) {
+    public init(appID: String? = nil, titleRegex: String? = nil, float: Bool = false, ignore: Bool = false, clickToFocus: Bool = false, workspace: Int? = nil) {
         self.appID = appID
         self.titleRegex = titleRegex
         self.float = float
         self.ignore = ignore
         self.clickToFocus = clickToFocus
+        self.workspace = workspace
     }
 
     enum CodingKeys: String, CodingKey {
         case appID = "app-id"
         case titleRegex = "title-regex"
         case clickToFocus = "click-to-focus"
-        case float, ignore
+        case float, ignore, workspace
     }
 
     public init(from decoder: Decoder) throws {
@@ -84,6 +87,7 @@ public struct Rule: Codable, Equatable, Sendable {
         float = try c.decodeIfPresent(Bool.self, forKey: .float) ?? false
         ignore = try c.decodeIfPresent(Bool.self, forKey: .ignore) ?? false
         clickToFocus = try c.decodeIfPresent(Bool.self, forKey: .clickToFocus) ?? false
+        workspace = try c.decodeIfPresent(Int.self, forKey: .workspace)
     }
 
     public func matches(appID: String?, title: String?) -> Bool {

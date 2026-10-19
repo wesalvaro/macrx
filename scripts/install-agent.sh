@@ -48,7 +48,17 @@ EOF
 
 if launchctl print "$DOMAIN/$LABEL" >/dev/null 2>&1; then
   # Already loaded: restart so the new binary (and plist) take effect.
-  launchctl bootout "$DOMAIN/$LABEL"
+  launchctl bootout "$DOMAIN/$LABEL" || true
+  # bootout is asynchronous; bootstrapping while the old job is still being torn down
+  # fails with "Input/output error" (5). Wait for it to disappear.
+  for _ in $(seq 1 50); do
+    launchctl print "$DOMAIN/$LABEL" >/dev/null 2>&1 || break
+    sleep 0.1
+  done
 fi
-launchctl bootstrap "$DOMAIN" "$PLIST"
+for attempt in 1 2 3 4 5; do
+  if launchctl bootstrap "$DOMAIN" "$PLIST"; then break; fi
+  [ "$attempt" -eq 5 ] && { echo "error: could not bootstrap $LABEL" >&2; exit 1; }
+  sleep 0.5
+done
 echo "installed $LABEL → $BIN (log: /tmp/macrx.log)"

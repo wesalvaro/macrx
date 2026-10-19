@@ -41,6 +41,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let manager = WindowManager(config: config, displays: displays, watcher: watcher, mouse: mouse, tabBars: tabBars)
         manager.onQuit = { NSApp.terminate(nil) }
         manager.onReload = { [weak self] in self?.reload() }
+        manager.onEditConfig = { [weak self] transform in self?.editConfig(transform) }
         self.manager = manager
 
         hotkeys.bindings = config.bindings
@@ -57,6 +58,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hotkeys.bindings = config.bindings
         manager?.applyConfig(config)
         log("config reloaded")
+    }
+
+    /// Applies `transform` to the config file's text, writes it back and reloads.
+    private func editConfig(_ transform: (String) -> String) {
+        let url = Self.configURL
+        do {
+            let old = (try? String(contentsOf: url, encoding: .utf8)) ?? Config.defaultTOML
+            let new = transform(old)
+            guard new != old else { return }
+            _ = try Config.parse(new)  // never write something we can't read back
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try new.write(to: url, atomically: true, encoding: .utf8)
+            log("config updated")
+            reload()
+        } catch {
+            log("could not update config: \(error)")
+        }
     }
 
     private func loadConfig() -> Config {

@@ -61,6 +61,8 @@ final class WindowManager {
 
     var onQuit: (() -> Void)?
     var onReload: (() -> Void)?
+    /// Rewrite the config file with `transform` and reload it (set by the app delegate).
+    var onEditConfig: ((_ transform: (String) -> String) -> Void)?
 
     init(config: Config, displays: DisplayManager, watcher: WindowWatcher, mouse: MouseController, tabBars: TabBarController) {
         self.config = config
@@ -210,17 +212,27 @@ final class WindowManager {
             log("↩ \(app.name) '\(w.title)' \(w.id) back to workspace \(d.workspace)")
             return
         }
-        switch rules.disposition(for: w, bundleID: app.bundleID) {
-        case .ignore:
+        let disposition = rules.disposition(for: w, bundleID: app.bundleID)
+        if disposition == .ignore {
             ignored.insert(w.id)
             return
-        case .float:
-            axWindows[w.id] = w
-            titles[w.id] = w.title
+        }
+        axWindows[w.id] = w
+        titles[w.id] = w.title
+        let floating = disposition == .float
+        // A `workspace = N` rule sends the window to that workspace. Like i3's `assign`, this
+        // doesn't switch to it: if the workspace is hidden the window simply waits there.
+        if let target = rules.assignedWorkspace(for: w, bundleID: app.bundleID),
+           target != (display(of: w) ?? model.focusedDisplay).flatMap({ model.visibleWorkspace(on: $0)?.id }) {
+            model.add(w.id, toWorkspace: target, floating: floating)
+            applyLayout()
+            if !floating, model.isVisible(target) { focus(w.id) }
+            log("+ \(app.name) '\(w.title)' \(w.id) → workspace \(target) (rule)")
+            return
+        }
+        if floating {
             model.add(w.id, floating: true, on: display(of: w))
-        case .tile:
-            axWindows[w.id] = w
-            titles[w.id] = w.title
+        } else {
             model.add(w.id, on: display(of: w))
             applyLayout()
             focus(w.id)
@@ -709,6 +721,20 @@ final class WindowManager {
         let wsItem = NSMenuItem(title: "Move to Workspace", action: nil, keyEquivalent: "")
         wsItem.submenu = wsSub
         menu.addItem(wsItem)
+
+        // Persist a `workspace = N` rule for this app (or drop the one macrx added earlier).
+        if let app = watcher.app(for: w.pid), let bundleID = app.bundleID, let currentWS {
+            let locked = ConfigEditor.workspaceRule(in: config.rules, appID: bundleID)
+            if let locked {
+                menu.addItem(.action("Unlock \(app.name) from Workspace \(locked)") { [weak self] in
+                    self?.onEditConfig?({ ConfigEditor.removingWorkspaceRule(from: $0, appID: bundleID) })
+                })
+            } else {
+                menu.addItem(.action("Always Open \(app.name) on Workspace \(currentWS)") { [weak self] in
+                    self?.onEditConfig?({ ConfigEditor.settingWorkspaceRule(in: $0, appID: bundleID, workspace: currentWS) })
+                })
+            }
+        }
 
         menu.addItem(.action("Float Window") { [weak self] in
             guard let self else { return }

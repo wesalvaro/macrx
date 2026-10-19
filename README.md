@@ -135,6 +135,9 @@ Modifiers: `alt` (`opt`), `shift`, `ctrl`, `cmd`.
 Every window is tiled by default. Rules match on `app-id` (bundle identifier) and/or
 `title-regex`; set `float = true` to keep a window out of the layout (it keeps its own
 frame and ordinary macOS stacking) or `ignore = true` to leave it entirely alone.
+`workspace = N` makes new matching windows open on workspace `N` without switching to it
+(like i3's `assign`); the tab bar's context menu has *Always Open <App> on Workspace N*,
+which appends such a rule to the config for you (and *Unlock* removes it again).
 `⌥⇧space` toggles floating for the focused window at runtime. Fixed-size windows are
 tiled too; see "How sizing works" above.
 

@@ -81,6 +81,12 @@ app-id = "com.apple.finder"
 title-regex = "^(Copy|Move|Trash)"
 float = true
 
+# Open new Slack windows on workspace 3 (without switching to it). The tab bar's context
+# menu ("Always Open … on Workspace N") appends rules like this one.
+# [[rule]]
+# app-id = "com.tinyspeck.slackmacgap"
+# workspace = 3
+
 # kitty (GLFW) ignores every programmatic key-window switch; a title-bar click is the only way.
 [[rule]]
 app-id = "net.kovidgoyal.kitty"

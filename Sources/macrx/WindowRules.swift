@@ -23,6 +23,12 @@ struct WindowRules {
         return .tile
     }
 
+    /// The workspace a new window should open on, from the first matching rule that sets one.
+    func assignedWorkspace(for window: AXWindow, bundleID: String?) -> Int? {
+        let title = window.title
+        return rules.first { $0.workspace != nil && $0.matches(appID: bundleID, title: title) }?.workspace
+    }
+
     func clickToFocus(bundleID: String?, title: String) -> Bool {
         rules.contains { $0.clickToFocus && $0.matches(appID: bundleID, title: title) }
     }

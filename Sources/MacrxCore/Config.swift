@@ -150,15 +150,19 @@ public struct Config: Equatable, Sendable {
         cfg.firstWorkspace = raw.firstWorkspace ?? 0
         guard cfg.firstWorkspace >= 0 else { throw ConfigError("first-workspace must be 0 or greater") }
         cfg.tabBar = raw.tabBar ?? TabBarConfig()
-        cfg.rules = raw.rule ?? []
-        for (keyString, cmdString) in raw.binding ?? [:] {
-            guard let combo = KeyCombo(string: keyString) else {
-                throw ConfigError("Unknown key combination '\(keyString)'")
+        cfg.rules = raw.rule ?? Self.default.rules
+        if let rawBindings = raw.binding {
+            for (keyString, cmdString) in rawBindings {
+                guard let combo = KeyCombo(string: keyString) else {
+                    throw ConfigError("Unknown key combination '\(keyString)'")
+                }
+                guard let cmd = Command(string: cmdString) else {
+                    throw ConfigError("Unknown command '\(cmdString)' for binding '\(keyString)'")
+                }
+                cfg.bindings[combo] = cmd
             }
-            guard let cmd = Command(string: cmdString) else {
-                throw ConfigError("Unknown command '\(cmdString)' for binding '\(keyString)'")
-            }
-            cfg.bindings[combo] = cmd
+        } else {
+            cfg.bindings = Self.default.bindings
         }
         return cfg
     }

@@ -43,6 +43,12 @@ import Foundation
         #expect(cfg.tabBar.switchOn == .click)
         #expect(cfg.tabBar.height == 26)
         #expect(cfg.bindings == [KeyCombo(modifiers: [.cmd, .ctrl], keyCode: 0x31): .float])
+
+        // Omitting [binding] and [[rule]] keeps the defaults, so a config file only needs
+        // what the user actually overrides.
+        let minimal = try Config.parse("focus-follows-mouse = false")
+        #expect(minimal.bindings == Config.default.bindings)
+        #expect(minimal.rules == Config.default.rules)
     }
 
     @Test func BadCommandIsRejected() {

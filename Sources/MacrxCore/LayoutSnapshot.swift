@@ -116,7 +116,8 @@ extension WorkspaceModel {
     public func snapshot(bootTime: Int, now: Date = Date()) -> LayoutSnapshot {
         let wss = workspaces.values.sorted { $0.id < $1.id }.map { ws in
             WorkspaceSnapshot(id: ws.id, display: ws.displayID.raw, visible: isVisible(ws.id),
-                              focused: ws.focused, floating: ws.floating.sorted { ($0.pid, $0.cgID) < ($1.pid, $1.cgID) },
+                              focused: ws.focused,
+                              floating: ws.floating.sorted { ($0.pid, $0.cgID) < ($1.pid, $1.cgID) },
                               fullscreen: ws.fullscreen, tree: ws.tree.root?.snapshot())
         }
         return LayoutSnapshot(bootTime: bootTime, savedAt: Int(now.timeIntervalSince1970),
@@ -137,6 +138,7 @@ extension WorkspaceModel {
             ws.floating = Set(w.floating)
             ws.fullscreen = w.fullscreen
             ws.focused = w.focused.flatMap { ws.contains($0) ? $0 : nil }
+            if ws.isEmpty && !w.visible { continue }
             restored[w.id] = ws
             if w.visible, known.contains(ws.displayID) { vis[ws.displayID] = w.id }
         }

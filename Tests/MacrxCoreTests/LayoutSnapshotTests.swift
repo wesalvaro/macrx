@@ -82,6 +82,21 @@ import Foundation
         #expect(restored.visibleWorkspace(on: d2.id) != nil)
     }
 
+    @Test func restoringPrunesEmptyHiddenWorkspaces() {
+        let wss: [WorkspaceSnapshot] = [
+            WorkspaceSnapshot(id: 0, display: d1.id.raw, visible: false, focused: nil, floating: [], fullscreen: nil, tree: nil),
+            WorkspaceSnapshot(id: 1, display: d1.id.raw, visible: true, focused: w(1), floating: [], fullscreen: nil,
+                              tree: .stack(windows: [w(1)], top: 0, size: .flex(1))),
+            WorkspaceSnapshot(id: 2, display: d2.id.raw, visible: true, focused: nil, floating: [], fullscreen: nil, tree: nil),
+            WorkspaceSnapshot(id: 3, display: d1.id.raw, visible: false, focused: nil, floating: [], fullscreen: nil, tree: nil),
+        ]
+        let snap = LayoutSnapshot(bootTime: 1, savedAt: 1, focusedDisplay: d1.id.raw, focusedWindow: w(1), workspaces: wss)
+        let restored = WorkspaceModel(restoring: snap, displays: [d1, d2])
+        #expect(restored.visibleWorkspace(on: d1.id)?.id == 1)
+        #expect(restored.visibleWorkspace(on: d2.id)?.id == 2)
+        #expect(Set(restored.workspaces.keys) == [1, 2])
+    }
+
     @Test func allWindowsListsEverything() {
         let snap = sampleModel().snapshot(bootTime: 1)
         #expect(snap.allWindows == Set([w(1), w(2), w(3), w(4), w(5), w(6), w(7)]))

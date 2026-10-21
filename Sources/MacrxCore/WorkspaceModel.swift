@@ -15,7 +15,7 @@ public struct Display: Equatable, Sendable {
 }
 
 public struct Workspace {
-    public let id: Int
+    public var id: Int
     public var tree = Tree()
     /// The display that owns this workspace.
     public var displayID: DisplayID
@@ -62,26 +62,33 @@ public struct WorkspaceModel {
 
     public var primaryDisplay: Display? { displays.first }
 
-    /// Updates the display list. Workspaces on vanished displays migrate to the primary display.
-    /// Every display is guaranteed a visible workspace.
+    /// Updates the display list. Workspaces on vanished displays migrate to the primary display,
+    /// and every display is guaranteed a visible workspace.
     public mutating func setDisplays(_ new: [Display]) {
         displays = new
-        guard let primary = new.first else { return }
+        guard let primary = new.first else {
+            visible.removeAll()
+            pruneEmptyWorkspaces()
+            return
+        }
         let ids = Set(new.map(\.id))
+
         for (id, ws) in workspaces where !ids.contains(ws.displayID) {
             workspaces[id]!.displayID = primary.id
         }
         visible = visible.filter { ids.contains($0.key) }
+        pruneEmptyWorkspaces()
+
         for d in new where visible[d.id] == nil {
-            // Prefer a workspace already owned by this display, else create a fresh one.
-            if let ws = workspaces.values.filter({ $0.displayID == d.id }).sorted(by: { $0.id < $1.id }).first {
-                visible[d.id] = ws.id
+            if let existing = workspaces.values.filter({ $0.displayID == d.id }).min(by: { $0.id < $1.id }) {
+                visible[d.id] = existing.id
             } else {
                 let id = lowestFreeWorkspaceID()
                 workspaces[id] = Workspace(id: id, displayID: d.id)
                 visible[d.id] = id
             }
         }
+
         if focusedDisplay.map({ !ids.contains($0) }) ?? true {
             focusedDisplay = primary.id
         }
@@ -92,6 +99,15 @@ public struct WorkspaceModel {
         var id = firstWorkspaceID
         while workspaces[id] != nil { id += 1 }
         return id
+    }
+
+    /// Removes empty workspaces that are not currently visible on any display, so an empty
+    /// workspace is unpinned from its display as soon as it moves to the background.
+    private mutating func pruneEmptyWorkspaces() {
+        let visibleIDs = Set(visible.values)
+        for (id, ws) in workspaces where ws.isEmpty && !visibleIDs.contains(id) {
+            workspaces[id] = nil
+        }
     }
 
     /// Replaces all workspaces and the visible map wholesale (used when restoring a snapshot;
@@ -138,6 +154,7 @@ public struct WorkspaceModel {
     public mutating func update(_ id: Int, _ body: (inout Workspace) -> Void) {
         guard workspaces[id] != nil else { return }
         body(&workspaces[id]!)
+        pruneEmptyWorkspaces()
     }
 
     // MARK: Focus
@@ -148,6 +165,7 @@ public struct WorkspaceModel {
         workspaces[ws.id]!.focused = w
         focusedDisplay = ws.displayID
         visible[ws.displayID] = ws.id
+        pruneEmptyWorkspaces()
     }
 
     public mutating func setFocusedDisplay(_ id: DisplayID) {
@@ -168,6 +186,7 @@ public struct WorkspaceModel {
         visible[ws.displayID] = id
         focusedDisplay = ws.displayID
         focused = ws.focused.flatMap { ws.contains($0) ? $0 : nil } ?? ws.tree.allStacks.first?.topWindow
+        pruneEmptyWorkspaces()
         return focused
     }
 
@@ -219,6 +238,7 @@ public struct WorkspaceModel {
         if workspaces[ws.id]!.fullscreen == w { workspaces[ws.id]!.fullscreen = nil }
         if workspaces[ws.id]!.focused == w { workspaces[ws.id]!.focused = replacement }
         if focused == w { focused = replacement }
+        pruneEmptyWorkspaces()
         return replacement
     }
 

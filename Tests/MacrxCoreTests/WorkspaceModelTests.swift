@@ -112,6 +112,7 @@ import Foundation
 
     @Test func DisplayRemovalMigratesWorkspaces() {
         var m = WorkspaceModel(displays: [d1, d2])
+        m.add(w(1)); m.setFocused(w(1))
         m.setFocusedDisplay(d2.id)
         m.add(w(5)); m.setFocused(w(5))
         m.setDisplays([d1])
@@ -119,11 +120,33 @@ import Foundation
         #expect(m.visibleWorkspace(on: d1.id)?.id == 0)
         #expect(m.focusedDisplay == d1.id)
         #expect(m.workspace(containing: w(5))?.id == 1)
-        // Re-adding d2 gives it a fresh workspace (1 stays on d1 until focused).
-        m.setDisplays([d1, d2])
-        #expect(m.visibleWorkspace(on: d2.id)?.id == 2)
-        m.focusWorkspace(1)
-        #expect(m.visibleWorkspace(on: d1.id)?.id == 1)
+    }
+
+    @Test func EmptyWorkspaceIsUnpinnedWhenMovedToBackground() {
+        var m = WorkspaceModel(displays: [d1, d2])
+        // d1 starts on empty workspace 0; d2 starts on empty workspace 1.
+        // While visible, both empty workspaces remain on their displays.
+        #expect(m.workspace(0)?.displayID == d1.id)
+        #expect(m.workspace(1)?.displayID == d2.id)
+
+        // Switching d1 from empty workspace 0 to workspace 3 unpins workspace 0,
+        // so d2 can now reuse workspace 0 on d2 (simultaneously unpinning empty workspace 1).
+        m.focusWorkspace(3)
+        #expect(m.workspace(0) == nil)
+        m.setFocusedDisplay(d2.id)
+        m.focusWorkspace(0)
+        #expect(m.workspace(0)?.displayID == d2.id)
+        #expect(m.visibleWorkspace(on: d2.id)?.id == 0)
+        #expect(m.workspace(1) == nil)
+
+        // Adding a window to workspace 0 and removing it keeps workspace 0 on d2 while visible,
+        // then unpins it once d2 switches away.
+        m.add(w(1)); m.setFocused(w(1))
+        m.remove(w(1))
+        #expect(m.workspace(0)?.displayID == d2.id)
+        #expect(m.visibleWorkspace(on: d2.id)?.id == 0)
+        m.focusWorkspace(2)
+        #expect(m.workspace(0) == nil)
     }
 
     @Test func RemoveFocusedSuggestsReplacement() {

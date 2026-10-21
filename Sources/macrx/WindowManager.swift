@@ -164,7 +164,12 @@ final class WindowManager {
         case .appTerminated(let pid):
             appTerminated(pid)
         case .frameChanged(let id):
-            guard let ax = axWindows[id], !parked.contains(id), let want = desiredFrames[id] else { return }
+            guard let ax = axWindows[id] else { return }
+            if parked.contains(id) {
+                scheduleVerify()
+                return
+            }
+            guard let want = desiredFrames[id] else { return }
             // A change while the button is held is the user dragging: an edge (resize) or the
             // title bar (move). Let it happen and fold it into the layout on mouse-up. Anything
             // else gets snapped back.
@@ -926,8 +931,22 @@ final class WindowManager {
     /// window inside the tile instead of leaving it in the corner. Returns the effective frame.
     @discardableResult
     private func place(_ ax: AXWindow, in rect: CGRect) -> CGRect {
+        let before = ax.frame
+        let wasAtOrigin = before.map { abs($0.minX - rect.minX) <= 2 && abs($0.minY - rect.minY) <= 2 } ?? false
         ax.setFrame(rect)
         guard let actual = ax.frame else { return rect }
+        // When a window moves from another position (e.g. unparking from a screen corner), AppKit
+        // can clamp `kAXSizeAttribute` against the screen edge using the old origin before the
+        // position update settles. Let the window settle at `rect.origin` and re-verify before
+        // treating a smaller size as a real window size cap.
+        if !wasAtOrigin, observedMax[ax.id] == nil,
+           actual.width < rect.width - 2 || actual.height < rect.height - 2 {
+            ax.setPosition(rect.origin)
+            effectiveFrames[ax.id] = nil
+            lastCorrection[ax.id] = nil
+            scheduleVerify()
+            return rect
+        }
         noteAcceptedSize(actual.size, requested: rect.size, for: ax.id)
         if abs(actual.width - rect.width) > 2 || abs(actual.height - rect.height) > 2 {
             var placed: CGRect
@@ -1011,6 +1030,15 @@ final class WindowManager {
                 if let last = self.lastCorrection[id], now.timeIntervalSince(last) < 1 { continue }
                 self.lastCorrection[id] = now
                 self.place(ax, in: desired)
+            }
+            for id in self.parked {
+                guard let ax = self.axWindows[id], let ws = self.model.workspace(containing: id),
+                      let full = self.displays.fullFrames[ws.displayID] ?? self.model.display(ws.displayID)?.frame,
+                      let have = ax.frame else { continue }
+                let corner = CGPoint(x: full.maxX - 2, y: full.maxY - 2)
+                if abs(have.minX - corner.x) > 10 || abs(have.minY - corner.y) > 100 {
+                    ax.setPosition(corner)
+                }
             }
         }
     }

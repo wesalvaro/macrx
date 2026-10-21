@@ -91,15 +91,20 @@ struct AXWindow: Hashable {
         return CGRect(origin: p, size: s)
     }
 
-    /// Applies `rect` (AX coordinates). Sets size → position → size, which handles apps
-    /// that clamp either attribute relative to the other.
+    /// Applies `rect` (AX coordinates). Sets position → size, then repeats if either attribute
+    /// was clamped against the previous value (e.g. unparking from a screen corner).
     @discardableResult
     func setFrame(_ rect: CGRect) -> Bool {
         var p = rect.origin, s = rect.size
         guard let pv = AXValueCreate(.cgPoint, &p), let sv = AXValueCreate(.cgSize, &s) else { return false }
-        _ = element.setAttribute(kAXSizeAttribute, sv)
         let okPos = element.setAttribute(kAXPositionAttribute, pv)
         let okSize = element.setAttribute(kAXSizeAttribute, sv)
+        if let f = frame,
+           abs(f.minX - rect.minX) > 2 || abs(f.minY - rect.minY) > 2
+            || abs(f.width - rect.width) > 2 || abs(f.height - rect.height) > 2 {
+            _ = element.setAttribute(kAXPositionAttribute, pv)
+            _ = element.setAttribute(kAXSizeAttribute, sv)
+        }
         return okPos && okSize
     }
 

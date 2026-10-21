@@ -130,6 +130,7 @@ first-workspace = 0   # number of the first workspace; bindings name workspaces 
 
 [tab-bar]
 show = "multiple"   # multiple | always | never
+position = "top"    # top | bottom
 switch-on = "hover" # hover | click
 strip-app-suffix = true
 height = 26

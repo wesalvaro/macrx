@@ -118,6 +118,19 @@ let screen = CGRect(x: 0, y: 0, width: 1000, height: 800)
         #expect(tiles[1].content == CGRect(x: 500, y: 26, width: 500, height: 774))
     }
 
+    @Test func TabBarBottomPosition() {
+        let a = Node(stack: [w(1)])
+        let b = Node(stack: [w(2), w(3)])
+        let t = Tree(root: Node(split: .horizontal, children: [a, b]))
+        var cfg = TabBarConfig(); cfg.position = .bottom
+        let tiles = LayoutEngine.tiles(t, in: screen, tabBarHeight: cfg.height(forWindowCount:), tabBarPosition: cfg.position)
+        #expect(!(tiles[0].hasTabBar))
+        #expect(tiles[0].content == CGRect(x: 0, y: 0, width: 500, height: 800))
+        #expect(tiles[1].hasTabBar)
+        #expect(tiles[1].content == CGRect(x: 500, y: 0, width: 500, height: 774))
+        #expect(tiles[1].tabBar == CGRect(x: 500, y: 774, width: 500, height: 26))
+    }
+
     @Test func TabBarNever() {
         var cfg = TabBarConfig(); cfg.show = .never
         #expect(cfg.height(forWindowCount: 5) == 0)

@@ -7,6 +7,7 @@ import Foundation
         let cfg = Config.default
         #expect(cfg.focusFollowsMouse)
         #expect(cfg.tabBar.show == .multiple)
+        #expect(cfg.tabBar.position == .top)
         #expect(cfg.tabBar.switchOn == .hover)
         #expect(cfg.bindings[KeyCombo(string: "alt-j")!] == .focus(.left))
         let r1 = cfg.bindings[KeyCombo(string: "alt-shift-l")!]
@@ -33,6 +34,7 @@ import Foundation
         focus-follows-mouse = false
         [tab-bar]
         show = "always"
+        position = "bottom"
         switch-on = "click"
         [binding]
         cmd-ctrl-space = "float"
@@ -40,9 +42,11 @@ import Foundation
         #expect(!(cfg.focusFollowsMouse))
         #expect(cfg.mouseFollowsFocus)
         #expect(cfg.tabBar.show == .always)
+        #expect(cfg.tabBar.position == .bottom)
         #expect(cfg.tabBar.switchOn == .click)
         #expect(cfg.tabBar.height == 26)
         #expect(cfg.bindings == [KeyCombo(modifiers: [.cmd, .ctrl], keyCode: 0x31): .float])
+        #expect(try Config.parse("[tab-bar]\nplacement = \"bottom\"").tabBar.position == .bottom)
 
         // Omitting [binding] and [[rule]] keeps the defaults, so a config file only needs
         // what the user actually overrides.

@@ -25,32 +25,49 @@ public enum LayoutEngine {
     /// Computes tiles for `tree` laid out inside `rect`.
     /// - Parameters:
     ///   - tabBarHeight: the height of the tab bar for a stack of the given window count (0 hides it).
+    ///   - tabBarPosition: whether the tab bar sits at the top or bottom of each tile.
     ///   - maxSize: per-window size caps; a stack whose windows are *all* capped along an axis is
     ///     laid out no larger than the largest cap, and its siblings take the freed space.
     public static func tiles(
         _ tree: Tree,
         in rect: CGRect,
         tabBarHeight: @escaping TabBarHeight = { _ in 0 },
+        tabBarPosition: TabBarPosition = .top,
         maxSize: @escaping MaxSize = { _ in nil }
     ) -> [Tile] {
         guard let root = tree.root else { return [] }
         var out: [Tile] = []
-        let ctx = Context(tabBarHeight: tabBarHeight, maxSize: maxSize)
+        let ctx = Context(tabBarHeight: tabBarHeight, tabBarPosition: tabBarPosition, maxSize: maxSize)
         layout(root, in: rect, ctx: ctx, into: &out)
         return out
     }
 
     struct Context {
         let tabBarHeight: TabBarHeight
+        let tabBarPosition: TabBarPosition
         let maxSize: MaxSize
+
+        init(tabBarHeight: @escaping TabBarHeight, tabBarPosition: TabBarPosition = .top, maxSize: @escaping MaxSize) {
+            self.tabBarHeight = tabBarHeight
+            self.tabBarPosition = tabBarPosition
+            self.maxSize = maxSize
+        }
     }
 
     private static func layout(_ node: Node, in rect: CGRect, ctx: Context, into out: inout [Tile]) {
         if node.isStack {
             guard let top = node.topWindow else { return }
             let h = min(max(0, ctx.tabBarHeight(node.windows.count)), rect.height)
-            let bar = CGRect(x: rect.minX, y: rect.minY, width: rect.width, height: h)
-            let content = CGRect(x: rect.minX, y: rect.minY + h, width: rect.width, height: rect.height - h)
+            let bar: CGRect
+            let content: CGRect
+            switch ctx.tabBarPosition {
+            case .top:
+                bar = CGRect(x: rect.minX, y: rect.minY, width: rect.width, height: h)
+                content = CGRect(x: rect.minX, y: rect.minY + h, width: rect.width, height: rect.height - h)
+            case .bottom:
+                content = CGRect(x: rect.minX, y: rect.minY, width: rect.width, height: rect.height - h)
+                bar = CGRect(x: rect.minX, y: rect.maxY - h, width: rect.width, height: h)
+            }
             out.append(Tile(stackID: node.id, frame: rect, tabBar: bar, content: content, windows: node.windows, top: top))
             return
         }
@@ -224,10 +241,11 @@ public enum LayoutEngine {
     public static func frames(
         _ tree: Tree, in rect: CGRect,
         tabBarHeight: @escaping TabBarHeight = { _ in 0 },
+        tabBarPosition: TabBarPosition = .top,
         maxSize: @escaping MaxSize = { _ in nil }
     ) -> [WindowID: CGRect] {
         var map: [WindowID: CGRect] = [:]
-        for t in tiles(tree, in: rect, tabBarHeight: tabBarHeight, maxSize: maxSize) {
+        for t in tiles(tree, in: rect, tabBarHeight: tabBarHeight, tabBarPosition: tabBarPosition, maxSize: maxSize) {
             for w in t.windows { map[w] = t.content }
         }
         return map

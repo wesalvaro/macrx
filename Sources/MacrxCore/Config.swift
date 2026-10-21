@@ -9,6 +9,11 @@ public enum TabBarVisibility: String, Codable, Sendable {
     case never
 }
 
+public enum TabBarPosition: String, Codable, Sendable {
+    case top
+    case bottom
+}
+
 public enum TabSwitchMode: String, Codable, Sendable {
     /// Moving the pointer over a tab switches to it.
     case hover
@@ -18,6 +23,7 @@ public enum TabSwitchMode: String, Codable, Sendable {
 
 public struct TabBarConfig: Codable, Equatable, Sendable {
     public var show: TabBarVisibility = .multiple
+    public var position: TabBarPosition = .top
     public var height: Double = 26
     public var fontSize: Double = 12
     public var switchOn: TabSwitchMode = .hover
@@ -26,7 +32,7 @@ public struct TabBarConfig: Codable, Equatable, Sendable {
     public init() {}
 
     enum CodingKeys: String, CodingKey {
-        case show, height
+        case show, position, placement, height
         case fontSize = "font-size"
         case switchOn = "switch-on"
         case stripAppSuffix = "strip-app-suffix"
@@ -35,10 +41,23 @@ public struct TabBarConfig: Codable, Equatable, Sendable {
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         show = try c.decodeIfPresent(TabBarVisibility.self, forKey: .show) ?? .multiple
+        position = try c.decodeIfPresent(TabBarPosition.self, forKey: .position)
+            ?? c.decodeIfPresent(TabBarPosition.self, forKey: .placement)
+            ?? .top
         height = try c.decodeNumberIfPresent(forKey: .height) ?? 26
         fontSize = try c.decodeNumberIfPresent(forKey: .fontSize) ?? 12
         switchOn = try c.decodeIfPresent(TabSwitchMode.self, forKey: .switchOn) ?? .hover
         stripAppSuffix = try c.decodeIfPresent(Bool.self, forKey: .stripAppSuffix) ?? true
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(show, forKey: .show)
+        try c.encode(position, forKey: .position)
+        try c.encode(height, forKey: .height)
+        try c.encode(fontSize, forKey: .fontSize)
+        try c.encode(switchOn, forKey: .switchOn)
+        try c.encode(stripAppSuffix, forKey: .stripAppSuffix)
     }
 
     /// Height of the bar for a stack with `count` windows.
@@ -224,6 +243,7 @@ public struct Config: Equatable, Sendable {
 
     [tab-bar]
     show = "multiple"        # multiple | always | never
+    position = "top"         # top | bottom
     switch-on = "hover"      # hover | click
     strip-app-suffix = true  # "Page - Google Chrome - Me (me@x.com)" → "Page"
     height = 26

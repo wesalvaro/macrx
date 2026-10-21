@@ -136,6 +136,7 @@ final class WindowManager {
         config = cfg
         model.firstWorkspaceID = cfg.firstWorkspace
         tabBars.fontSize = CGFloat(cfg.tabBar.fontSize)
+        tabBars.position = cfg.tabBar.position
         if cfg.focusFollowsMouse { mouse.startFollowing() } else { mouse.stopFollowing() }
         statusBar.isShown = cfg.menuBar
         applyLayout()
@@ -774,7 +775,7 @@ final class WindowManager {
                     continue
                 }
                 ws.floating.forEach { floatingToShow.insert($0) }
-                let ts = LayoutEngine.tiles(ws.tree, in: display.frame, tabBarHeight: tabBarHeight, maxSize: { caps[$0] })
+                let ts = LayoutEngine.tiles(ws.tree, in: display.frame, tabBarHeight: tabBarHeight, tabBarPosition: config.tabBar.position, maxSize: { caps[$0] })
                 for t in ts {
                     desired[t.top] = t.content
                     for w in t.windows where w != t.top {
@@ -813,7 +814,11 @@ final class WindowManager {
         for (nodeID, e) in kindsByNode {
             let badges = SizeBadge.badges(for: e.kinds, nodeID: nodeID)
             let corner = CGPoint(x: e.frame.maxX, y: e.frame.minY)
-            let host = e.tiles.first { abs($0.frame.maxX - corner.x) < 1 && abs($0.frame.minY - corner.y) < 1 }
+            let barY = config.tabBar.position == .bottom ? e.frame.maxY : e.frame.minY
+            let host = e.tiles.first {
+                let y = config.tabBar.position == .bottom ? $0.frame.maxY : $0.frame.minY
+                return abs($0.frame.maxX - corner.x) < 1 && abs(y - barY) < 1
+            }
             if let host, host.hasTabBar {
                 barBadges[host.stackID, default: []] += badges
             } else {
@@ -924,10 +929,11 @@ final class WindowManager {
                 let target = rect.contains(p) ? p : rect.center
                 placed = Self.centered(size: actual.size, on: target, within: rect)
             } else if let tab = tabAnchors[ax.id] {
-                // In a tab group: sit directly below its tab (clamped to the tile), so moving the
-                // pointer down from the tab lands on this window rather than the one behind it.
+                // In a tab group: sit directly beside its tab (clamped to the tile), so moving the
+                // pointer from the tab into the tile lands on this window rather than the one behind it.
                 let x = min(max(tab.midX - actual.width / 2, rect.minX), max(rect.minX, rect.maxX - actual.width))
-                placed = CGRect(x: x, y: rect.minY, width: actual.width, height: actual.height)
+                let y = config.tabBar.position == .bottom ? rect.maxY - actual.height : rect.minY
+                placed = CGRect(x: x, y: y, width: actual.width, height: actual.height)
             } else {
                 placed = CGRect(x: rect.midX - actual.width / 2, y: rect.midY - actual.height / 2,
                                 width: actual.width, height: actual.height)

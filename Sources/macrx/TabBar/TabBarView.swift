@@ -22,6 +22,7 @@ final class TabBarView: NSView {
     var draggedID: WindowID? { didSet { if draggedID != oldValue { needsDisplay = true } } }
     var isFocused = false { didSet { if isFocused != oldValue { needsDisplay = true } } }
     var fontSize: CGFloat = 12 { didSet { if fontSize != oldValue { relayout() } } }
+    var position: TabBarPosition = .top { didSet { if position != oldValue { needsDisplay = true } } }
 
     var onTabClicked: ((WindowID) -> Void)?
     var onTabClosed: ((WindowID) -> Void)?
@@ -156,7 +157,8 @@ final class TabBarView: NSView {
         }
 
         NSColor.separatorColor.setFill()
-        CGRect(x: 0, y: bounds.height - 1, width: bounds.width, height: 1).fill()
+        let sepY = position == .bottom ? 0 : bounds.height - 1
+        CGRect(x: 0, y: sepY, width: bounds.width, height: 1).fill()
         SizeBadgeDrawer.draw(badges, rects: badgeRects, hovered: badgeHovered)
     }
 

@@ -97,10 +97,10 @@ final class TabBarController {
         }
     }
 
-    /// Updates badge hover state for the pointer at `p` (AX coordinates).
-    func setBadgeHover(at p: CGPoint) {
+    /// Updates badge hover state for the pointer at `p` (AX coordinates), or clears it when `nil`.
+    func setBadgeHover(at p: CGPoint?) {
         for (stack, panel) in panels {
-            panel.tabView.badgeHovered = badgeRects[stack]?.firstIndex { $0.contains(p) }
+            panel.tabView.badgeHovered = p.flatMap { pt in badgeRects[stack]?.firstIndex { $0.contains(pt) } }
         }
     }
 

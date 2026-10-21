@@ -175,7 +175,17 @@ final class TabBarView: NSView {
         return closeRect(for: tabRects[i]).contains(viewPoint) ? items[i].id : nil
     }
 
+    private var shouldIgnoreMouseEvents: Bool {
+        !MouseController.isOwnPanelTopmost(at: CoordinateSpace.toAX(NSEvent.mouseLocation))
+    }
+
     override func mouseMoved(with event: NSEvent) {
+        if shouldIgnoreMouseEvents {
+            hoveredID = nil
+            closeHovered = false
+            badgeHovered = nil
+            return
+        }
         let pt = convert(event.locationInWindow, from: nil)
         hoveredID = tab(at: pt)
         closeHovered = closeButton(at: pt) != nil
@@ -189,6 +199,7 @@ final class TabBarView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        guard !shouldIgnoreMouseEvents else { return }
         if event.modifierFlags.contains(.control) {
             rightMouseDown(with: event)
             return
@@ -236,11 +247,13 @@ final class TabBarView: NSView {
     }
 
     override func otherMouseDown(with event: NSEvent) {
+        guard !shouldIgnoreMouseEvents else { return }
         guard event.buttonNumber == 2 else { super.otherMouseDown(with: event); return }
         if let id = tab(at: convert(event.locationInWindow, from: nil)) { onTabClosed?(id) }
     }
 
     override func rightMouseDown(with event: NSEvent) {
+        guard !shouldIgnoreMouseEvents else { return }
         let pt = convert(event.locationInWindow, from: nil)
         guard let id = tab(at: pt), let menu = menuForTab?(id) else { return }
         NSMenu.popUpContextMenu(menu, with: event, for: self)

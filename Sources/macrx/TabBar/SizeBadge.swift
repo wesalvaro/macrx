@@ -177,12 +177,17 @@ private final class BadgeView: NSView {
     }
 
     override func mouseMoved(with event: NSEvent) {
+        guard MouseController.isOwnPanelTopmost(at: CoordinateSpace.toAX(NSEvent.mouseLocation)) else {
+            hovered = nil
+            return
+        }
         let p = convert(event.locationInWindow, from: nil)
         hovered = rects.firstIndex { $0.contains(p) }
     }
     override func mouseExited(with event: NSEvent) { hovered = nil }
 
     override func mouseDown(with event: NSEvent) {
+        guard MouseController.isOwnPanelTopmost(at: CoordinateSpace.toAX(NSEvent.mouseLocation)) else { return }
         let p = convert(event.locationInWindow, from: nil)
         guard let i = rects.firstIndex(where: { $0.contains(p) }), let id = badges[i].resetsNode else { return }
         onReset?(id)

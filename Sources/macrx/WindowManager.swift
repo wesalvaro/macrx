@@ -425,9 +425,19 @@ final class WindowManager {
 
     private func pointerMoved(to p: CGPoint) {
         guard !isDraggingTab, userMoving.isEmpty, config.focusFollowsMouse else { return }
+        guard !MouseController.isMenuOpen() else {
+            tabBars.setHovered(nil)
+            tabBars.setBadgeHover(at: nil)
+            return
+        }
         // Tab bars: hovering a tab switches to it (unless hovering its × close button).
-        // Never look through the bar at windows beneath.
+        // Never look through the bar at windows beneath — or through a window/menu above the bar.
         if tabBars.frames.values.contains(where: { $0.contains(p) }) {
+            guard MouseController.isOwnPanelTopmost(at: p) else {
+                tabBars.setHovered(nil)
+                tabBars.setBadgeHover(at: nil)
+                return
+            }
             let hit = tabBars.tab(at: p)
             tabBars.setHovered(hit?.window, closeHovered: hit?.onClose ?? false)
             tabBars.setBadgeHover(at: p)
@@ -439,7 +449,7 @@ final class WindowManager {
             return
         }
         tabBars.setHovered(nil)
-        tabBars.setBadgeHover(at: p)
+        tabBars.setBadgeHover(at: nil)
         // Respect the real z-order: a floating / dialog / unmanaged window over a tile wins.
         // Only actual window content counts — the desktop does nothing.
         guard let topmost = Self.topmostWindow(at: p), axWindows[topmost] != nil else { return }

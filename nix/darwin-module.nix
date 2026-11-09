@@ -1,5 +1,4 @@
-# nix-darwin module: macrx as a launchd user agent (label org.nixos.macrx; what `just install`
-# sets up by hand as dev.macrx.macrx — run `just uninstall` first if that one is loaded).
+# nix-darwin module: macrx as a launchd user agent (label org.nixos.macrx).
 #
 # macrx needs Accessibility access (System Settings → Privacy & Security → Accessibility) and
 # waits until it is granted; macOS ties the grant to the binary's signature, so each new build

@@ -34,7 +34,8 @@ dropped; the file is ignored after a reboot. Delete it to start from a clean lay
 
 ```sh
 just dev-cert   # once: self-signed identity so the Accessibility grant survives rebuilds
-just run        # build, sign, launch
+just dev        # build, sign, stop org.nixos.macrx, and launch the local dev binary
+just restart    # stop the dev binary and start the real org.nixos.macrx agent again
 ```
 
 On first launch macOS asks you to grant **Accessibility** access
@@ -59,7 +60,7 @@ services.macrx.enable = true;
 The package builds with the host's Command Line Tools (nixpkgs' Swift is too old and has no
 AppKit), so it is impure and needs `sandbox = false` (nix-darwin's default); with the cache
 trusted (`nixConfig` in `flake.nix`) you normally get the pushed binary instead. The agent is
-`org.nixos.macrx`; `just uninstall` a hand-installed `dev.macrx.macrx` first. The build is
+`org.nixos.macrx`. The build is
 ad-hoc signed, so each new version asks for Accessibility again. `just push` builds and pushes
 to cachix.
 

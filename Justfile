@@ -5,7 +5,9 @@ testlib := "/Library/Developer/CommandLineTools/Library/Developer/usr/lib"
 test_flags := "--disable-xctest --enable-swift-testing -Xswiftc -F" + fw + " -Xswiftc -plugin-path -Xswiftc " + plugins + " -Xlinker -F" + fw + " -Xlinker -rpath -Xlinker " + fw + " -Xlinker -rpath -Xlinker " + testlib
 bin := ".build/debug/macrx"
 identity := "macrx-dev"
-label := "dev.macrx.macrx"
+identifier := "dev.macrx.macrx"
+agent := "org.nixos.macrx"
+plist := "~/Library/LaunchAgents/" + agent + ".plist"
 domain := "gui/" + `id -u`
 
 build:
@@ -16,35 +18,36 @@ test:
 
 sign: build
     @if security find-identity -v -p codesigning | grep -q "{{identity}}"; then \
-      codesign --force --sign "{{identity}}" --identifier {{label}} {{bin}}; \
+      codesign --force --sign "{{identity}}" --identifier {{identifier}} {{bin}}; \
     else \
       echo "warning: no '{{identity}}' identity; run 'just dev-cert' so Accessibility grants survive rebuilds"; \
     fi
 
-# Foreground, for development. Stop the agent first if it is installed.
-run: sign
+# Stop the launchd agent (and any running dev instance) and wait for it to exit.
+stop:
+    -launchctl bootout {{domain}}/{{agent}} 2>/dev/null
+    -pkill -x macrx 2>/dev/null
+    @for _ in $(seq 1 50); do pgrep -x macrx >/dev/null || break; sleep 0.1; done
+
+# Shut down the real binary and switch to the local dev binary in the background.
+dev: sign stop
+    @/usr/bin/perl -MPOSIX -e 'fork and exit; POSIX::setsid(); open STDIN, "</dev/null"; open STDOUT, ">>/tmp/macrx.log"; open STDERR, ">&STDOUT"; exec @ARGV' {{bin}}
+    @sleep 0.2
+    @just status
+
+# Shut down the real binary and run the local dev binary in the foreground.
+run: sign stop
     {{bin}}
+
+# Stop any dev instance and start/restart the real launchd agent (org.nixos.macrx).
+restart: stop
+    launchctl bootstrap {{domain}} {{plist}}
 
 dev-cert:
     scripts/dev-cert.sh {{identity}}
 
-# Build, sign and install/update the launchd agent (~/.local/bin/macrx, starts at login).
-install: sign
-    scripts/install-agent.sh {{bin}}
-
-# Restart the installed agent without rebuilding.
-restart:
-    launchctl kickstart -k {{domain}}/{{label}}
-
-stop:
-    launchctl bootout {{domain}}/{{label}}
-
-uninstall:
-    -launchctl bootout {{domain}}/{{label}}
-    rm -f ~/Library/LaunchAgents/{{label}}.plist ~/.local/bin/macrx
-
 status:
-    @launchctl print {{domain}}/{{label}} 2>/dev/null | grep -E "state|pid|last exit" || echo "{{label}} is not loaded"
+    @ps -o pid,lstart,command -p $(pgrep -d, -x macrx) 2>/dev/null || echo "macrx is not running"
 
 logs:
     tail -f /tmp/macrx.log

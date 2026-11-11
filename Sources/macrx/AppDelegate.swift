@@ -122,7 +122,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         mouse.stopFollowing()
         watcher.stop()
         tabBars.hideAll()
-        manager?.restoreParkedWindows()
+        manager?.shutdown()
     }
 
     private func installSignalHandlers() {

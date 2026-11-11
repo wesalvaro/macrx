@@ -170,14 +170,12 @@ tiled too; see "How sizing works" above.
 
 ## Known limitations
 
-- Windows in a stack all keep the tile's frame; only z-order changes. The one exception:
-  macOS keeps every window of the *active* app above all others, so an active-app window
-  that is not the top of its stack is temporarily parked off-screen (bottom-right corner)
-  while that app is active. Hidden workspaces are parked the same way (macOS has no
-  per-window hide for other apps); Mission Control and ⌘-Tab still show parked windows.
+- Windows in a stack and on background workspaces keep their normal frame; only z-order changes,
+  with a translucent scrim ordered directly behind the current workspace's foreground windows.
+  Mission Control and ⌘-Tab still show windows from all workspaces.
 - A top window that refuses the tile size (minimum/fixed size) sits under its tab, and when
-  focused with the mouse it moves to sit under the pointer; the windows behind it in the
-  stack remain visible around it.
+  focused with the mouse it moves to sit under the pointer; background windows behind it sit
+  beneath the workspace scrim.
 - A tile that mixes size-capped and free windows keeps its full size; the capped windows sit centred in it (or under their tab) while behind the top window.
 - Floating windows drop behind tiles once a tile is focused (the AX API cannot keep an
   inactive app's window on top); use ⌘-Tab or click to bring one back.

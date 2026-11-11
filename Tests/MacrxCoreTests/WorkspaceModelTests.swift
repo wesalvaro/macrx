@@ -189,4 +189,32 @@ import Foundation
         let again = m.moveFocusedWorkspace(toDisplay: .right)
         #expect(!again)
     }
+
+    @Test func VisibleForegroundExcludesOtherWorkspacesAndHiddenStackMembers() {
+        var m = WorkspaceModel(displays: [d1, d2])
+        // Workspace 0 on d1: w1 and w2 stacked (w2 on top), plus w3 floating.
+        m.add(w(1)); m.setFocused(w(1))
+        m.add(w(2)); m.setFocused(w(2))
+        m.add(w(3), floating: true)
+        #expect(m.isVisibleForeground(w(2)))
+        #expect(!m.isVisibleForeground(w(1)))
+        #expect(m.isVisibleForeground(w(3)))
+
+        // Fullscreen on w2 hides other tiled stack tops on that workspace, keeping floating windows.
+        m.update(0) { _ = $0.tree.move(w(1), .right, in: d1.frame) }
+        #expect(m.isVisibleForeground(w(1)))
+        #expect(m.isVisibleForeground(w(2)))
+        m.toggleFullscreen(w(2))
+        #expect(m.isVisibleForeground(w(2)))
+        #expect(!m.isVisibleForeground(w(1)))
+        #expect(m.isVisibleForeground(w(3)))
+        m.toggleFullscreen(w(2))
+
+        // Switching d1 to workspace 4 puts workspace 0 in the background: none of its windows
+        // are visible-foreground anymore, so mouse hover must ignore them.
+        m.focusWorkspace(4)
+        #expect(!m.isVisibleForeground(w(1)))
+        #expect(!m.isVisibleForeground(w(2)))
+        #expect(!m.isVisibleForeground(w(3)))
+    }
 }

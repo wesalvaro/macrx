@@ -32,6 +32,22 @@ public struct Workspace {
     public var allWindows: [WindowID] { tree.allWindows + Array(floating) }
     public func contains(_ w: WindowID) -> Bool { tree.contains(w) || floating.contains(w) }
     public var isEmpty: Bool { tree.isEmpty && floating.isEmpty }
+
+    /// Windows in the foreground layer of this workspace (stack tops, or the fullscreen window,
+    /// plus floating windows). Non-top stack members and tiled windows behind a fullscreen
+    /// window are excluded.
+    public var foregroundWindows: [WindowID] {
+        var out: [WindowID] = []
+        if let fs = fullscreen, contains(fs) {
+            out.append(fs)
+        } else {
+            out.append(contentsOf: tree.allStacks.compactMap(\.topWindow))
+        }
+        for w in floating.sorted(by: { $0.cgID < $1.cgID }) where !out.contains(w) {
+            out.append(w)
+        }
+        return out
+    }
 }
 
 /// Owns all workspaces and tracks which one is visible on each display.
@@ -140,6 +156,13 @@ public struct WorkspaceModel {
     public func isVisible(_ wsID: Int) -> Bool {
         guard let ws = workspaces[wsID] else { return false }
         return visible[ws.displayID] == wsID
+    }
+
+    /// Whether `w` is a foreground window on a currently visible workspace (eligible to sit
+    /// above the workspace scrim and to receive mouse-hover focus).
+    public func isVisibleForeground(_ w: WindowID) -> Bool {
+        guard let ws = workspace(containing: w), isVisible(ws.id) else { return false }
+        return ws.foregroundWindows.contains(w)
     }
 
     public var focusedWorkspace: Workspace? {

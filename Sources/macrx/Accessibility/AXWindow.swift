@@ -92,7 +92,7 @@ struct AXWindow: Hashable {
     }
 
     /// Applies `rect` (AX coordinates). Sets position → size, then repeats if either attribute
-    /// was clamped against the previous value (e.g. unparking from a screen corner).
+    /// was clamped against the previous value (e.g. moving across displays or tiles).
     @discardableResult
     func setFrame(_ rect: CGRect) -> Bool {
         var p = rect.origin, s = rect.size

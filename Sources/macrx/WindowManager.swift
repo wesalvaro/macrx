@@ -13,16 +13,13 @@ final class WindowManager {
     private let tabBars: TabBarController
     private let statusBar = StatusBar()
     private let sizeBadges = SizeBadgeController()
+    private let scrims = ScrimController()
 
     private var axWindows: [WindowID: AXWindow] = [:]
     private var titles: [WindowID: String] = [:]
     private var ignored: Set<WindowID> = []
-    /// Last frame we applied to each window (nil for parked windows).
+    /// Last frame we applied to each window.
     private var lastApplied: [WindowID: CGRect] = [:]
-    private var parked: Set<WindowID> = []
-    /// Where each floating window sat before it was parked, so it can come back when its
-    /// workspace is shown again (tiled windows get their tile back; floating ones have no tile).
-    private var floatingFrames: [WindowID: CGRect] = [:]
     /// Currently visible tiles, with the display each belongs to.
     private var tiles: [(tile: Tile, display: DisplayID)] = []
     private var desiredFrames: [WindowID: CGRect] = [:]
@@ -37,6 +34,9 @@ final class WindowManager {
     private var verifyScheduled = false
     private var lastCorrection: [WindowID: Date] = [:]
     private var lastFocusAt = Date.distantPast
+    /// Timestamp when an unfocused foreground window was raised above a background window, so
+    /// the resulting focus-echo notification is not mistaken for a user focus change.
+    private var restackedAt: [WindowID: Date] = [:]
     /// For `workspace back-and-forth`.
     private var currentWorkspaceID: Int?
     private var previousWorkspaceID: Int?
@@ -164,16 +164,11 @@ final class WindowManager {
         case .appTerminated(let pid):
             appTerminated(pid)
         case .frameChanged(let id):
-            guard let ax = axWindows[id] else { return }
-            if parked.contains(id) {
-                scheduleVerify()
-                return
-            }
-            guard let want = desiredFrames[id] else { return }
+            guard let ax = axWindows[id], let want = desiredFrames[id] else { return }
             // A change while the button is held is the user dragging: an edge (resize) or the
             // title bar (move). Let it happen and fold it into the layout on mouse-up. Anything
             // else gets snapped back.
-            if mouse.isPrimaryButtonDown, let have = ax.frame {
+            if mouse.isPrimaryButtonDown, let have = ax.frame, model.isVisibleForeground(id) {
                 let ref = effectiveFrames[id] ?? want
                 let sizeChanged = abs(have.width - ref.width) > 2 || abs(have.height - ref.height) > 2
                 let moved = abs(have.minX - ref.minX) > 2 || abs(have.minY - ref.minY) > 2
@@ -259,9 +254,9 @@ final class WindowManager {
         titles[id] = nil
         lastApplied[id] = nil
         effectiveFrames[id] = nil
+        tabAnchors[id] = nil
+        restackedAt[id] = nil
         // Keep `observedMax`: if the window comes back it is the same window with the same limits.
-        parked.remove(id)
-        floatingFrames[id] = nil
         applyLayout()
         if wasFocused, let r = replacement { focus(r, warp: false) }
         log("- \(id)")
@@ -295,10 +290,14 @@ final class WindowManager {
             log("ignored stale focus report \(id)")
             return
         }
-        // Right after we focused a different window of the same app, a report for the old window
-        // is the app lagging (or refusing) the key-window switch, not the user — don't ping-pong.
+        // Right after we focused a different window of the same app (or raised an unfocused
+        // foreground window during restacking), a report for that window is an echo, not the user.
         if let f = model.focused, f.pid == id.pid, Date().timeIntervalSince(lastFocusAt) < 1.0 {
             log("ignored same-app focus report \(id) shortly after focusing \(f)")
+            return
+        }
+        if let t = restackedAt[id], Date().timeIntervalSince(t) < 0.5 {
+            log("ignored restack focus report \(id)")
             return
         }
         log("external focus \(id)")
@@ -340,19 +339,23 @@ final class WindowManager {
         if !model.isVisible(ws.id) { model.focusWorkspace(ws.id) }
         model.setFocused(id)
         model.update(ws.id) { $0.tree.makeTop(id) }
+
+        // Window-server level focus (`kCPSUserGenerated` focuses only `id`, without raising the
+        // app's other windows that may live on other workspaces or behind in a stack). Fall back
+        // to full app activation only when SkyLight isn't available.
+        let sl = SkyLight.focus(pid: id.pid, windowID: id.cgID)
+        if !sl {
+            log("skylight focus unavailable/failed for \(id)")
+            watcher.app(for: id.pid)?.activate()
+        }
+        ax.raise()
         applyLayout()
 
-        // Window-server level focus (handles apps that ignore AX focus attributes, e.g. kitty),
-        // then the AX path which also covers the fallback when SkyLight isn't available.
-        let sl = SkyLight.focus(pid: id.pid, windowID: id.cgID)
-        if !sl { log("skylight focus unavailable/failed for \(id)") }
-        ax.raise()
-        watcher.app(for: id.pid)?.activate()
-        // Activation reorders all of the app's windows; re-assert ours shortly after.
+        // Re-assert z-order and scrim placement shortly after activation settles.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
             guard let self, self.model.focused == id else { return }
             ax.raise()
-            self.raiseStackTops()
+            self.restackWindows()
             self.tabBars.bringToFront()
             self.sizeBadges.bringToFront()
         }
@@ -458,8 +461,8 @@ final class WindowManager {
         // Respect the real z-order: a floating / dialog / unmanaged window over a tile wins.
         // Only actual window content counts — the desktop does nothing.
         guard let topmost = Self.topmostWindow(at: p), axWindows[topmost] != nil else { return }
-        // Parked windows (hidden stack members / other workspaces) only show a sliver; never hover-focus them.
-        guard !parked.contains(topmost) else { return }
+        // Never hover-focus windows in another workspace or behind the top of a stack.
+        guard model.isVisibleForeground(topmost) else { return }
         if topmost != model.focused {
             log("hover \(p) → \(topmost)")
             focus(topmost, warp: false)
@@ -773,42 +776,25 @@ final class WindowManager {
     func applyLayout() {
         relayoutPending = false
         var desired: [WindowID: CGRect] = [:]
-        var anchors: [WindowID: CGRect] = [:]
-        var toPark: Set<WindowID> = []
-        var floatingToShow: Set<WindowID> = []
         var newTiles: [(tile: Tile, display: DisplayID)] = []
         var fullscreenDisplays: Set<DisplayID> = []
         var markers: [(LayoutEngine.SizeMarker, [Tile])] = []
         let caps = observedMax
 
-        let activePid = model.focused?.pid
         for display in model.displays {
             for ws in model.workspaces.values where ws.displayID == display.id {
                 let visible = model.isVisible(ws.id)
-                guard visible else {
-                    ws.allWindows.forEach { toPark.insert($0) }
-                    continue
-                }
-                ws.floating.forEach { floatingToShow.insert($0) }
                 let ts = LayoutEngine.tiles(ws.tree, in: display.frame, tabBarHeight: tabBarHeight, tabBarPosition: config.tabBar.position, maxSize: { caps[$0] })
                 for t in ts {
-                    desired[t.top] = t.content
-                    for w in t.windows where w != t.top {
-                        // Stack members stay in place; only z-order distinguishes the top.
-                        // Exception: macOS keeps *all* windows of the active app above everything
-                        // else, so an active-app window behind another app's top would cover it.
-                        if w.pid == activePid && t.top.pid != activePid {
-                            toPark.insert(w)
-                        } else {
-                            desired[w] = t.content
-                        }
+                    for w in t.windows {
+                        desired[w] = t.content
                     }
-                    newTiles.append((t, display.id))
+                    if visible { newTiles.append((t, display.id)) }
                 }
                 if let fs = ws.fullscreen, ws.contains(fs) {
                     desired[fs] = display.frame
-                    fullscreenDisplays.insert(display.id)
-                } else {
+                    if visible { fullscreenDisplays.insert(display.id) }
+                } else if visible {
                     markers += LayoutEngine.sizeMarkers(ws.tree, in: display.frame, tabBarHeight: tabBarHeight, maxSize: { caps[$0] })
                         .map { ($0, ts) }
                 }
@@ -843,41 +829,27 @@ final class WindowManager {
         // Tab bars first: constrained windows are anchored under their tabs.
         syncTabBars(excluding: fullscreenDisplays, badges: barBadges)
         sizeBadges.sync(floating)
-        for id in desired.keys { if let a = tabBars.anchor(for: id) { anchors[id] = a } }
-        let previousAnchors = tabAnchors
-        tabAnchors = anchors
+        var movedAnchors: Set<WindowID> = []
+        for (tile, _) in newTiles {
+            for id in tile.windows {
+                let a = tabBars.anchor(for: id)
+                if a != tabAnchors[id] {
+                    tabAnchors[id] = a
+                    if effectiveFrames[id] != nil { movedAnchors.insert(id) }
+                }
+            }
+        }
 
         for (id, rect) in desired {
             guard let ax = axWindows[id] else { continue }
             // Constrained windows also need re-placing when their tab moved (tabs added/removed).
-            let anchorMoved = effectiveFrames[id] != nil && anchors[id] != previousAnchors[id]
-            if parked.contains(id) || lastApplied[id] != rect || anchorMoved {
+            if lastApplied[id] != rect || movedAnchors.contains(id) {
                 place(ax, in: rect)
                 lastApplied[id] = rect
-                parked.remove(id)
             }
-        }
-        // Floating windows on a visible workspace have no tile; put parked ones back where they were.
-        for id in floatingToShow where parked.contains(id) {
-            guard let ax = axWindows[id] else { continue }
-            if let saved = floatingFrames[id] {
-                ax.setFrame(saved)
-            } else if let ws = model.workspace(containing: id), let d = model.display(ws.displayID) {
-                ax.setFrame(d.frame)
-            }
-            parked.remove(id)
-            floatingFrames[id] = nil
-        }
-        for id in toPark where !parked.contains(id) {
-            guard let ax = axWindows[id], let ws = model.workspace(containing: id),
-                  let full = displays.fullFrames[ws.displayID] ?? model.display(ws.displayID)?.frame else { continue }
-            if ws.floating.contains(id), let f = ax.frame { floatingFrames[id] = f }
-            ax.setPosition(CGPoint(x: full.maxX - 2, y: full.maxY - 2))
-            parked.insert(id)
-            lastApplied[id] = nil
         }
 
-        raiseStackTops()
+        restackWindows()
         updateStatusBar()
         if restoring.isEmpty { store.save(model.snapshot(bootTime: LayoutStore.bootTime)) }
         // A window just told us (via place) how big it can really get: lay out once more so its
@@ -906,15 +878,88 @@ final class WindowManager {
         statusBar.update(entries)
     }
 
-    /// Brings the top window of every visible multi-window stack to the front of its tile.
-    /// (AX raise reorders among inactive apps' windows; the active app is always on top anyway.)
-    private func raiseStackTops() {
-        // Never touch windows of the active app: they are already above everything else, and
-        // raising one of them would move keyboard focus away from the focused window.
-        let activePid = model.focused?.pid
-        for (tile, _) in tiles where tile.windows.count > 1 && tile.top != model.focused && tile.top.pid != activePid {
-            axWindows[tile.top]?.orderFront()
+    /// Foreground windows on `displayID` in desired back-to-front order (tile tops, then
+    /// floating, with `model.focused` last if it lives on this display).
+    private func foregroundWindows(on displayID: DisplayID) -> [WindowID] {
+        guard let ws = model.visibleWorkspace(on: displayID) else { return [] }
+        var fg = ws.foregroundWindows.filter { axWindows[$0] != nil }
+        if let f = model.focused, let idx = fg.firstIndex(of: f) {
+            fg.remove(at: idx)
+            fg.append(f)
         }
+        return fg
+    }
+
+    /// Managed windows on `displayID` that belong behind the scrim (other workspaces on that
+    /// display, non-top stack members, or tiled windows behind a fullscreen window).
+    private func backgroundWindows(on displayID: DisplayID, foreground: Set<WindowID>) -> Set<WindowID> {
+        var bg: Set<WindowID> = []
+        for ws in model.workspaces.values where ws.displayID == displayID {
+            for w in ws.allWindows where axWindows[w] != nil && !foreground.contains(w) {
+                bg.insert(w)
+            }
+        }
+        return bg
+    }
+
+    /// Normal-layer (`kCGNormalWindowLevel`) on-screen windows in front-to-back z-order.
+    private static func normalLayerWindowOrder() -> [WindowID] {
+        guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+            as? [[String: Any]] else { return [] }
+        var out: [WindowID] = []
+        for info in list {
+            guard (info[kCGWindowLayer as String] as? Int) == 0,
+                  let pid = info[kCGWindowOwnerPID as String] as? Int32,
+                  let num = info[kCGWindowNumber as String] as? UInt32
+            else { continue }
+            out.append(WindowID(pid: pid, cgID: num))
+        }
+        return out
+    }
+
+    /// Orders every visible workspace's foreground windows above background workspaces' windows
+    /// and non-top stack members, and places each display's translucent scrim directly behind
+    /// its foreground windows.
+    private func restackWindows() {
+        for display in model.displays {
+            for w in foregroundWindows(on: display.id) where w != model.focused {
+                axWindows[w]?.orderFront()
+            }
+        }
+
+        let order = Self.normalLayerWindowOrder()
+        var didSkyLightRaise = false
+        for display in model.displays {
+            let fg = foregroundWindows(on: display.id)
+            let bgSet = backgroundWindows(on: display.id, foreground: Set(fg))
+            guard let topBgIndex = order.firstIndex(where: { bgSet.contains($0) }) else { continue }
+            for w in fg where w != model.focused {
+                if let fgIndex = order.firstIndex(of: w), fgIndex > topBgIndex {
+                    restackedAt[w] = Date()
+                    _ = SkyLight.focus(pid: w.pid, windowID: w.cgID)
+                    axWindows[w]?.orderFront()
+                    didSkyLightRaise = true
+                }
+            }
+        }
+        if let f = model.focused, let ax = axWindows[f] {
+            if didSkyLightRaise {
+                lastFocusAt = Date()
+                let sl = SkyLight.focus(pid: f.pid, windowID: f.cgID)
+                if !sl { watcher.app(for: f.pid)?.activate() }
+            }
+            ax.raise()
+        }
+
+        let finalOrder = didSkyLightRaise ? Self.normalLayerWindowOrder() : order
+        let scrimEntries = model.displays.map { display -> (id: DisplayID, frame: CGRect, belowWindow: CGWindowID?) in
+            let fg = foregroundWindows(on: display.id)
+            let fgCG = Set(fg.map(\.cgID))
+            let lowestFg = finalOrder.last { fgCG.contains($0.cgID) }?.cgID ?? fg.first?.cgID
+            let frame = displays.fullFrames[display.id] ?? display.frame
+            return (id: display.id, frame: frame, belowWindow: lowestFg)
+        }
+        scrims.sync(displays: scrimEntries)
     }
 
     private func syncTabBars(excluding fullscreenDisplays: Set<DisplayID> = [], badges: [ObjectIdentifier: [SizeBadge]] = [:]) {
@@ -935,7 +980,7 @@ final class WindowManager {
         let wasAtOrigin = before.map { abs($0.minX - rect.minX) <= 2 && abs($0.minY - rect.minY) <= 2 } ?? false
         ax.setFrame(rect)
         guard let actual = ax.frame else { return rect }
-        // When a window moves from another position (e.g. unparking from a screen corner), AppKit
+        // When a window moves from another position (e.g. across displays or tiles), AppKit
         // can clamp `kAXSizeAttribute` against the screen edge using the old origin before the
         // position update settles. Let the window settle at `rect.origin` and re-verify before
         // treating a smaller size as a real window size cap.
@@ -1031,15 +1076,6 @@ final class WindowManager {
                 self.lastCorrection[id] = now
                 self.place(ax, in: desired)
             }
-            for id in self.parked {
-                guard let ax = self.axWindows[id], let ws = self.model.workspace(containing: id),
-                      let full = self.displays.fullFrames[ws.displayID] ?? self.model.display(ws.displayID)?.frame,
-                      let have = ax.frame else { continue }
-                let corner = CGPoint(x: full.maxX - 2, y: full.maxY - 2)
-                if abs(have.minX - corner.x) > 10 || abs(have.minY - corner.y) > 100 {
-                    ax.setPosition(corner)
-                }
-            }
         }
     }
 
@@ -1093,17 +1129,11 @@ final class WindowManager {
 
     // MARK: - Shutdown
 
-    /// Brings every parked (off-screen) window back on screen so nothing is lost when macrx exits.
-    /// The layout is saved first so the next launch can put everything back.
-    func restoreParkedWindows() {
+    /// Saves the layout snapshot and hides macrx's overlay panels on exit.
+    func shutdown() {
         store.saveNow(model.snapshot(bootTime: LayoutStore.bootTime))
         sizeBadges.hideAll()
-        for id in parked {
-            guard let ax = axWindows[id], let ws = model.workspace(containing: id),
-                  let d = model.display(ws.displayID) else { continue }
-            ax.setFrame(d.frame)
-        }
-        parked.removeAll()
+        scrims.hideAll()
     }
 
 }

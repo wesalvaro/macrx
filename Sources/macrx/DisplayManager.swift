@@ -5,7 +5,7 @@ import MacrxCore
 @MainActor
 final class DisplayManager {
     private(set) var displays: [Display] = []
-    /// Full (not just visible) frame per display, in AX coordinates. Used to park hidden windows.
+    /// Full (not just visible) frame per display, in AX coordinates. Used for display scrims.
     private(set) var fullFrames: [DisplayID: CGRect] = [:]
     private(set) var names: [DisplayID: String] = [:]
     var onChange: (([Display]) -> Void)?

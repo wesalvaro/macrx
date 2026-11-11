@@ -469,13 +469,16 @@ final class WindowManager {
         }
     }
 
-    /// The frontmost normal-layer on-screen window containing `p` (CG/AX coordinates).
+    /// The frontmost normal-layer on-screen window containing `p` (CG/AX coordinates),
+    /// excluding `macrx`'s own overlay/scrim panels.
     private static func topmostWindow(at p: CGPoint) -> WindowID? {
+        let ownPID = ProcessInfo.processInfo.processIdentifier
         guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
             as? [[String: Any]] else { return nil }
         for info in list {
             guard (info[kCGWindowLayer as String] as? Int) == 0,
                   let pid = info[kCGWindowOwnerPID as String] as? Int32,
+                  pid != ownPID,
                   let num = info[kCGWindowNumber as String] as? UInt32,
                   let b = info[kCGWindowBounds as String] as? [String: CGFloat],
                   let x = b["X"], let y = b["Y"], let w = b["Width"], let h = b["Height"]
@@ -530,17 +533,19 @@ final class WindowManager {
             let pointerDisplay = displays.display(containing: mouse.location)?.id
             let target = model.focusWorkspace(n)
             guard before != n || target != model.focused else { return }
-            applyLayout()
             // Don't yank the pointer around on a workspace switch; only move it when the
             // workspace lives on a different display (otherwise focus-follows-mouse would
             // immediately pull focus back to the display the pointer is on).
             let crossesDisplay = model.focusedDisplay != pointerDisplay
-            if let target {
+            if let target, axWindows[target] != nil {
                 focus(target, warp: crossesDisplay)
-            } else if crossesDisplay, config.mouseFollowsFocus, let d = model.focusedDisplay.flatMap(model.display) {
-                mouse.warp(to: d.frame.center)
             } else {
-                mouse.suppress()
+                applyLayout()
+                if crossesDisplay, config.mouseFollowsFocus, let d = model.focusedDisplay.flatMap(model.display) {
+                    mouse.warp(to: d.frame.center)
+                } else {
+                    mouse.suppress()
+                }
             }
         case .moveToWorkspace(let n):
             guard let w = model.focused else { return }
@@ -902,14 +907,17 @@ final class WindowManager {
         return bg
     }
 
-    /// Normal-layer (`kCGNormalWindowLevel`) on-screen windows in front-to-back z-order.
+    /// Normal-layer (`kCGNormalWindowLevel`) on-screen windows in front-to-back z-order,
+    /// excluding `macrx`'s own overlay/scrim panels.
     private static func normalLayerWindowOrder() -> [WindowID] {
+        let ownPID = ProcessInfo.processInfo.processIdentifier
         guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
             as? [[String: Any]] else { return [] }
         var out: [WindowID] = []
         for info in list {
             guard (info[kCGWindowLayer as String] as? Int) == 0,
                   let pid = info[kCGWindowOwnerPID as String] as? Int32,
+                  pid != ownPID,
                   let num = info[kCGWindowNumber as String] as? UInt32
             else { continue }
             out.append(WindowID(pid: pid, cgID: num))
@@ -918,46 +926,81 @@ final class WindowManager {
     }
 
     /// Orders every visible workspace's foreground windows above background workspaces' windows
-    /// and non-top stack members, and places each display's translucent scrim directly behind
-    /// its foreground windows.
-    private func restackWindows() {
-        for display in model.displays {
-            for w in foregroundWindows(on: display.id) where w != model.focused {
-                axWindows[w]?.orderFront()
-            }
-        }
-
+    /// and non-top stack members, and places each display's translucent scrim between its
+    /// foreground and background windows.
+    private func restackWindows(allowRetry: Bool = true) {
+        let now = Date()
         let order = Self.normalLayerWindowOrder()
-        var didSkyLightRaise = false
+        var didRaiseUnfocused = false
+        var needsFocusedReassert = false
         for display in model.displays {
             let fg = foregroundWindows(on: display.id)
             let bgSet = backgroundWindows(on: display.id, foreground: Set(fg))
-            guard let topBgIndex = order.firstIndex(where: { bgSet.contains($0) }) else { continue }
-            for w in fg where w != model.focused {
-                if let fgIndex = order.firstIndex(of: w), fgIndex > topBgIndex {
-                    restackedAt[w] = Date()
-                    _ = SkyLight.focus(pid: w.pid, windowID: w.cgID)
-                    axWindows[w]?.orderFront()
-                    didSkyLightRaise = true
+            if let topBgIndex = order.firstIndex(where: { bgSet.contains($0) }) {
+                for w in fg {
+                    guard let fgIndex = order.firstIndex(of: w), fgIndex > topBgIndex else { continue }
+                    if w == model.focused {
+                        needsFocusedReassert = true
+                    } else {
+                        if let t = restackedAt[w], now.timeIntervalSince(t) < 0.15 { continue }
+                        restackedAt[w] = now
+                        _ = SkyLight.focus(pid: w.pid, windowID: w.cgID)
+                        axWindows[w]?.orderFront()
+                        didRaiseUnfocused = true
+                    }
+                }
+            }
+            // Keep visible floating windows above tiled windows on the same display.
+            if let ws = model.visibleWorkspace(on: display.id), ws.fullscreen == nil, !ws.floating.isEmpty {
+                let tiledSet = Set(ws.tree.allStacks.compactMap(\.topWindow))
+                if let topTiledIndex = order.firstIndex(where: { tiledSet.contains($0) }) {
+                    for w in ws.floating where w != model.focused && axWindows[w] != nil {
+                        if let flIndex = order.firstIndex(of: w), flIndex > topTiledIndex {
+                            if let t = restackedAt[w], now.timeIntervalSince(t) < 0.15 { continue }
+                            restackedAt[w] = now
+                            _ = SkyLight.focus(pid: w.pid, windowID: w.cgID)
+                            axWindows[w]?.orderFront()
+                            didRaiseUnfocused = true
+                        }
+                    }
                 }
             }
         }
-        if let f = model.focused, let ax = axWindows[f] {
-            if didSkyLightRaise {
-                lastFocusAt = Date()
-                let sl = SkyLight.focus(pid: f.pid, windowID: f.cgID)
-                if !sl { watcher.app(for: f.pid)?.activate() }
-            }
+        if (didRaiseUnfocused || needsFocusedReassert), let f = model.focused, let ax = axWindows[f] {
+            lastFocusAt = Date()
+            let sl = SkyLight.focus(pid: f.pid, windowID: f.cgID)
+            if !sl { watcher.app(for: f.pid)?.activate() }
             ax.raise()
+            if allowRetry {
+                // Chrome PWA shims (`app_mode_loader`) process window raises asynchronously
+                // (~100-180ms); re-verify once they settle so neither a foreground window nor
+                // the scrim is left behind.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+                    self?.restackWindows(allowRetry: false)
+                }
+            }
         }
 
-        let finalOrder = didSkyLightRaise ? Self.normalLayerWindowOrder() : order
-        let scrimEntries = model.displays.map { display -> (id: DisplayID, frame: CGRect, belowWindow: CGWindowID?) in
+        let finalOrder = (didRaiseUnfocused || needsFocusedReassert) ? Self.normalLayerWindowOrder() : order
+        let scrimEntries = model.displays.map { display -> ScrimController.Entry in
             let fg = foregroundWindows(on: display.id)
-            let fgCG = Set(fg.map(\.cgID))
-            let lowestFg = finalOrder.last { fgCG.contains($0.cgID) }?.cgID ?? fg.first?.cgID
+            let bgSet = backgroundWindows(on: display.id, foreground: Set(fg))
             let frame = displays.fullFrames[display.id] ?? display.frame
-            return (id: display.id, frame: frame, belowWindow: lowestFg)
+            let ordering: ScrimController.Ordering
+            if fg.isEmpty {
+                ordering = .front
+            } else if let highestBg = finalOrder.first(where: { bgSet.contains($0) })?.cgID {
+                ordering = .above(highestBg)
+            } else {
+                let nonFocusedFg = Set(fg.filter { $0 != model.focused }.map(\.cgID))
+                let candidates = nonFocusedFg.isEmpty ? Set(fg.map(\.cgID)) : nonFocusedFg
+                if let lowestFg = finalOrder.last(where: { candidates.contains($0.cgID) })?.cgID ?? fg.first?.cgID {
+                    ordering = .below(lowestFg)
+                } else {
+                    ordering = .front
+                }
+            }
+            return ScrimController.Entry(id: display.id, frame: frame, ordering: ordering)
         }
         scrims.sync(displays: scrimEntries)
     }

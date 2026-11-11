@@ -6,12 +6,26 @@ import MacrxCore
 /// members).
 @MainActor
 final class ScrimController {
+    enum Ordering: Equatable {
+        /// Place immediately above the topmost background window on this display.
+        case above(CGWindowID)
+        /// Place immediately below the bottommost foreground window on this display.
+        case below(CGWindowID)
+        /// Place at the front of the normal window layer (empty visible workspace).
+        case front
+    }
+
+    struct Entry {
+        let id: DisplayID
+        let frame: CGRect
+        let ordering: Ordering
+    }
+
     private var panels: [DisplayID: ScrimPanel] = [:]
 
-    /// Updates each display's scrim frame and orders it immediately below `belowWindow`
-    /// (the lowest foreground window on that display), or at the front of the normal window
-    /// layer when the visible workspace on that display has no foreground windows.
-    func sync(displays: [(id: DisplayID, frame: CGRect, belowWindow: CGWindowID?)]) {
+    /// Updates each display's scrim frame and z-order between the display's foreground and
+    /// background windows.
+    func sync(displays: [Entry]) {
         var seen: Set<DisplayID> = []
         for d in displays {
             seen.insert(d.id)
@@ -19,9 +33,12 @@ final class ScrimController {
             panels[d.id] = panel
             let rect = CoordinateSpace.toAppKit(d.frame)
             if panel.frame != rect { panel.setFrame(rect, display: true) }
-            if let below = d.belowWindow {
-                panel.order(.below, relativeTo: Int(below))
-            } else {
+            switch d.ordering {
+            case .above(let windowID):
+                panel.order(.above, relativeTo: Int(windowID))
+            case .below(let windowID):
+                panel.order(.below, relativeTo: Int(windowID))
+            case .front:
                 panel.orderFrontRegardless()
             }
         }

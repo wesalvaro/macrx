@@ -217,4 +217,43 @@ import Foundation
         #expect(!m.isVisibleForeground(w(2)))
         #expect(!m.isVisibleForeground(w(3)))
     }
+
+    @Test func UndockAndStaggeredRedockRestoresWorkspacesToPreferredDisplays() {
+        let wide = Display(id: DisplayID(5), frame: CGRect(x: 0, y: 30, width: 3840, height: 2130))
+        let portrait = Display(id: DisplayID(3), frame: CGRect(x: -1440, y: -292, width: 1440, height: 2530))
+        let builtin = Display(id: DisplayID(1), frame: CGRect(x: 0, y: 38, width: 1512, height: 944))
+
+        var m = WorkspaceModel(displays: [wide, portrait])
+        // Put w1 on ws0 (wide), w2 on ws2 (wide), and w3 on ws1 (portrait).
+        m.add(w(1)); m.setFocused(w(1))
+        m.focusWorkspace(2)
+        m.add(w(2)); m.setFocused(w(2))
+        m.setFocusedDisplay(portrait.id)
+        m.add(w(3)); m.setFocused(w(3))
+
+        #expect(m.workspace(0)?.displayID == DisplayID(5))
+        #expect(m.workspace(2)?.displayID == DisplayID(5))
+        #expect(m.workspace(1)?.displayID == DisplayID(3))
+
+        // Undock to the built-in display alone.
+        m.setDisplays([builtin])
+        #expect(m.workspace(0)?.displayID == DisplayID(1))
+        #expect(m.workspace(1)?.displayID == DisplayID(1))
+        #expect(m.workspace(2)?.displayID == DisplayID(1))
+
+        // Re-dock: macOS brings up the portrait monitor first (and swaps its CGDirectDisplayID to 5!),
+        // then 1 second later brings up the 4K monitor with CGDirectDisplayID 3.
+        let portraitSwapped = Display(id: DisplayID(5), frame: CGRect(x: 0, y: 30, width: 1440, height: 2530))
+        let wideSwapped = Display(id: DisplayID(3), frame: CGRect(x: 0, y: 30, width: 3840, height: 2130))
+        let portraitShifted = Display(id: DisplayID(5), frame: CGRect(x: -1440, y: -292, width: 1440, height: 2530))
+
+        m.setDisplays([portraitSwapped])
+        m.setDisplays([wideSwapped, portraitShifted])
+
+        #expect(m.workspace(0)?.displayID == DisplayID(3))
+        #expect(m.workspace(2)?.displayID == DisplayID(3))
+        #expect(m.workspace(1)?.displayID == DisplayID(5))
+        #expect(m.visibleWorkspace(on: DisplayID(5))?.id == 1)
+        #expect(m.visibleWorkspace(on: DisplayID(3))?.id == 2 || m.visibleWorkspace(on: DisplayID(3))?.id == 0)
+    }
 }

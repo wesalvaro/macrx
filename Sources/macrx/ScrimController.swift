@@ -13,6 +13,8 @@ final class ScrimController {
         case below(CGWindowID)
         /// Place at the front of the normal window layer (empty visible workspace).
         case front
+        /// Hide the scrim (empty visible workspace with no background windows on this display).
+        case hidden
     }
 
     struct Entry {
@@ -40,6 +42,8 @@ final class ScrimController {
                 panel.order(.below, relativeTo: Int(windowID))
             case .front:
                 panel.orderFrontRegardless()
+            case .hidden:
+                panel.orderOut(nil)
             }
         }
         for (id, panel) in panels where !seen.contains(id) {

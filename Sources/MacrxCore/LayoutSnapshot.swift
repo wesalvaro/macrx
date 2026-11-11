@@ -53,11 +53,26 @@ public indirect enum NodeSnapshot: Codable, Equatable {
 public struct WorkspaceSnapshot: Codable, Equatable {
     public var id: Int
     public var display: UInt32
+    public var displayWidth: CGFloat?
+    public var displayHeight: CGFloat?
     public var visible: Bool
     public var focused: WindowID?
     public var floating: [WindowID]
     public var fullscreen: WindowID?
     public var tree: NodeSnapshot?
+
+    public init(id: Int, display: UInt32, displayWidth: CGFloat? = nil, displayHeight: CGFloat? = nil,
+                visible: Bool, focused: WindowID?, floating: [WindowID], fullscreen: WindowID?, tree: NodeSnapshot?) {
+        self.id = id
+        self.display = display
+        self.displayWidth = displayWidth
+        self.displayHeight = displayHeight
+        self.visible = visible
+        self.focused = focused
+        self.floating = floating
+        self.fullscreen = fullscreen
+        self.tree = tree
+    }
 }
 
 /// Everything needed to bring the layout back after a restart within the same login session.
@@ -115,7 +130,10 @@ extension Node {
 extension WorkspaceModel {
     public func snapshot(bootTime: Int, now: Date = Date()) -> LayoutSnapshot {
         let wss = workspaces.values.sorted { $0.id < $1.id }.map { ws in
-            WorkspaceSnapshot(id: ws.id, display: ws.displayID.raw, visible: isVisible(ws.id),
+            WorkspaceSnapshot(id: ws.id, display: ws.displayID.raw,
+                              displayWidth: ws.preferredDisplaySize?.width,
+                              displayHeight: ws.preferredDisplaySize?.height,
+                              visible: isVisible(ws.id),
                               focused: ws.focused,
                               floating: ws.floating.sorted { ($0.pid, $0.cgID) < ($1.pid, $1.cgID) },
                               fullscreen: ws.fullscreen, tree: ws.tree.root?.snapshot())
@@ -132,7 +150,12 @@ extension WorkspaceModel {
         var restored: [Int: Workspace] = [:]
         var vis: [DisplayID: Int] = [:]
         for w in s.workspaces {
-            var ws = Workspace(id: w.id, displayID: DisplayID(w.display))
+            let pref: CGSize? = if let dw = w.displayWidth, let dh = w.displayHeight {
+                CGSize(width: dw, height: dh)
+            } else {
+                nil
+            }
+            var ws = Workspace(id: w.id, displayID: DisplayID(w.display), preferredDisplaySize: pref)
             ws.tree = Tree(root: w.tree.map(Node.init))
             ws.tree.normalize()
             ws.floating = Set(w.floating)

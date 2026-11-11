@@ -1037,17 +1037,17 @@ final class WindowManager {
             let bgSet = backgroundWindows(on: display.id, foreground: Set(fg))
             let frame = displays.fullFrames[display.id] ?? display.frame
             let ordering: ScrimController.Ordering
-            if fg.isEmpty {
-                ordering = .front
-            } else if let highestBg = finalOrder.first(where: { bgSet.contains($0) })?.cgID {
+            if let highestBg = finalOrder.first(where: { bgSet.contains($0) })?.cgID {
                 ordering = .above(highestBg)
+            } else if fg.isEmpty {
+                ordering = .hidden
             } else {
                 let nonFocusedFg = Set(fg.filter { $0 != model.focused }.map(\.cgID))
                 let candidates = nonFocusedFg.isEmpty ? Set(fg.map(\.cgID)) : nonFocusedFg
                 if let lowestFg = finalOrder.last(where: { candidates.contains($0.cgID) })?.cgID ?? fg.first?.cgID {
                     ordering = .below(lowestFg)
                 } else {
-                    ordering = .front
+                    ordering = .hidden
                 }
             }
             return ScrimController.Entry(id: display.id, frame: frame, ordering: ordering)
@@ -1084,11 +1084,10 @@ final class WindowManager {
         // can clamp `kAXSizeAttribute` against the screen edge using the old origin before the
         // position update settles. Let the window settle at `rect.origin` and re-verify before
         // treating a smaller size as a real window size cap.
-        if !wasAtOrigin, observedMax[ax.id] == nil,
+        if !wasAtOrigin, observedMax[ax.id] == nil, lastCorrection[ax.id] == nil,
            actual.width < rect.width - 2 || actual.height < rect.height - 2 {
             ax.setPosition(rect.origin)
             effectiveFrames[ax.id] = nil
-            lastCorrection[ax.id] = nil
             scheduleVerify()
             return nil
         }
@@ -1174,7 +1173,13 @@ final class WindowManager {
                 // Avoid fighting apps that enforce a minimum size: at most one correction per second.
                 if let last = self.lastCorrection[id], now.timeIntervalSince(last) < 1 { continue }
                 self.lastCorrection[id] = now
-                self.place(ax, in: desired)
+                if self.place(ax, in: desired) != nil {
+                    self.lastApplied[id] = desired
+                }
+            }
+            if self.relayoutPending {
+                log("size caps changed on verify; re-laying out")
+                self.applyLayout()
             }
         }
     }

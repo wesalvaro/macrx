@@ -19,14 +19,19 @@ public struct Workspace {
     public var tree = Tree()
     /// The display that owns this workspace.
     public var displayID: DisplayID
+    /// Frame size of the display this workspace lived on when multiple displays were connected,
+    /// so undocking to a single display and re-docking restores the workspace to its monitor
+    /// even if displays wake up seconds apart or macOS swaps their `CGDirectDisplayID`s.
+    public var preferredDisplaySize: CGSize?
     /// Last focused window on this workspace.
     public var focused: WindowID?
     public var floating: Set<WindowID> = []
     public var fullscreen: WindowID?
 
-    public init(id: Int, displayID: DisplayID) {
+    public init(id: Int, displayID: DisplayID, preferredDisplaySize: CGSize? = nil) {
         self.id = id
         self.displayID = displayID
+        self.preferredDisplaySize = preferredDisplaySize
     }
 
     public var allWindows: [WindowID] { tree.allWindows + Array(floating) }
@@ -79,7 +84,8 @@ public struct WorkspaceModel {
     public var primaryDisplay: Display? { displays.first }
 
     /// Updates the display list. Workspaces on vanished displays migrate to the primary display,
-    /// and every display is guaranteed a visible workspace.
+    /// and every display is guaranteed a visible workspace. When returning to a multi-display
+    /// setup, workspaces return to the display matching their `preferredDisplaySize`.
     public mutating func setDisplays(_ new: [Display]) {
         displays = new
         guard let primary = new.first else {
@@ -89,10 +95,50 @@ public struct WorkspaceModel {
         }
         let ids = Set(new.map(\.id))
 
-        for (id, ws) in workspaces where !ids.contains(ws.displayID) {
-            workspaces[id]!.displayID = primary.id
+        if new.count > 1 {
+            for (id, ws) in workspaces {
+                let current = display(ws.displayID)
+                if let pref = ws.preferredDisplaySize {
+                    func dist(_ d: Display) -> CGFloat {
+                        abs(d.frame.width - pref.width) + abs(d.frame.height - pref.height)
+                    }
+                    // Keep the workspace on its current display unless that display vanished or
+                    // another display is a closer size match to `pref`.
+                    let best: Display
+                    if let current, let candidate = new.min(by: { dist($0) < dist($1) }), dist(candidate) + 1 < dist(current) {
+                        best = candidate
+                    } else if let current {
+                        best = current
+                    } else if let candidate = new.min(by: { dist($0) < dist($1) }) {
+                        best = candidate
+                    } else {
+                        best = primary
+                    }
+                    workspaces[id]!.displayID = best.id
+                    workspaces[id]!.preferredDisplaySize = best.frame.size
+                } else if let current {
+                    workspaces[id]!.preferredDisplaySize = current.frame.size
+                } else {
+                    workspaces[id]!.displayID = primary.id
+                    workspaces[id]!.preferredDisplaySize = primary.frame.size
+                }
+            }
+        } else {
+            for (id, ws) in workspaces where !ids.contains(ws.displayID) {
+                workspaces[id]!.displayID = primary.id
+            }
         }
-        visible = visible.filter { ids.contains($0.key) }
+
+        var nextVisible: [DisplayID: Int] = [:]
+        for (dID, wsID) in visible {
+            guard let ws = workspaces[wsID], ids.contains(ws.displayID) else { continue }
+            if ws.displayID == dID {
+                nextVisible[dID] = wsID
+            } else if nextVisible[ws.displayID] == nil {
+                nextVisible[ws.displayID] = wsID
+            }
+        }
+        visible = nextVisible
         pruneEmptyWorkspaces()
 
         for d in new where visible[d.id] == nil {
@@ -100,12 +146,15 @@ public struct WorkspaceModel {
                 visible[d.id] = existing.id
             } else {
                 let id = lowestFreeWorkspaceID()
-                workspaces[id] = Workspace(id: id, displayID: d.id)
+                let pref = new.count > 1 ? d.frame.size : nil
+                workspaces[id] = Workspace(id: id, displayID: d.id, preferredDisplaySize: pref)
                 visible[d.id] = id
             }
         }
 
-        if focusedDisplay.map({ !ids.contains($0) }) ?? true {
+        if let f = focused, let ws = workspace(containing: f), ids.contains(ws.displayID) {
+            focusedDisplay = ws.displayID
+        } else if focusedDisplay.map({ !ids.contains($0) }) ?? true {
             focusedDisplay = primary.id
         }
         if let f = focused, workspace(containing: f) == nil { focused = nil }
@@ -203,7 +252,8 @@ public struct WorkspaceModel {
     public mutating func focusWorkspace(_ id: Int) -> WindowID? {
         if workspaces[id] == nil {
             guard let d = focusedDisplay ?? primaryDisplay?.id else { return nil }
-            workspaces[id] = Workspace(id: id, displayID: d)
+            let pref = displays.count > 1 ? display(d)?.frame.size : nil
+            workspaces[id] = Workspace(id: id, displayID: d, preferredDisplaySize: pref)
         }
         let ws = workspaces[id]!
         visible[ws.displayID] = id
@@ -235,7 +285,8 @@ public struct WorkspaceModel {
         guard workspace(containing: w) == nil else { return }
         if workspaces[id] == nil {
             guard let d = focusedDisplay ?? primaryDisplay?.id else { return }
-            workspaces[id] = Workspace(id: id, displayID: d)
+            let pref = displays.count > 1 ? display(d)?.frame.size : nil
+            workspaces[id] = Workspace(id: id, displayID: d, preferredDisplaySize: pref)
         }
         if floating {
             workspaces[id]!.floating.insert(w)
@@ -273,7 +324,8 @@ public struct WorkspaceModel {
         let wasFloating = src.floating.contains(w)
         let replacement = remove(w)
         if workspaces[id] == nil {
-            workspaces[id] = Workspace(id: id, displayID: src.displayID)
+            let pref = displays.count > 1 ? display(src.displayID)?.frame.size : src.preferredDisplaySize
+            workspaces[id] = Workspace(id: id, displayID: src.displayID, preferredDisplaySize: pref)
         }
         if wasFloating {
             workspaces[id]!.floating.insert(w)
@@ -312,9 +364,11 @@ public struct WorkspaceModel {
         let source = ws.displayID
         if let otherID = visible[target.id] {
             workspaces[otherID]!.displayID = source
+            if displays.count > 1 { workspaces[otherID]!.preferredDisplaySize = display(source)?.frame.size }
             visible[source] = otherID
         }
         workspaces[ws.id]!.displayID = target.id
+        if displays.count > 1 { workspaces[ws.id]!.preferredDisplaySize = target.frame.size }
         visible[target.id] = ws.id
         focusedDisplay = target.id
         return true

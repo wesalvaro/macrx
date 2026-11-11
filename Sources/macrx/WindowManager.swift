@@ -20,6 +20,9 @@ final class WindowManager {
     private var ignored: Set<WindowID> = []
     /// Last frame we applied to each window.
     private var lastApplied: [WindowID: CGRect] = [:]
+    /// Workspaces that were visible on the previous layout pass, so newly shown workspaces
+    /// verify their windows' actual frames.
+    private var lastVisibleWorkspaces: Set<Int> = []
     /// Currently visible tiles, with the display each belongs to.
     private var tiles: [(tile: Tile, display: DisplayID)] = []
     private var desiredFrames: [WindowID: CGRect] = [:]
@@ -163,6 +166,8 @@ final class WindowManager {
             if axWindows[w.id] != nil { axWindows[w.id] = w }
         case .appTerminated(let pid):
             appTerminated(pid)
+        case .systemWoke:
+            systemWoke()
         case .frameChanged(let id):
             guard let ax = axWindows[id], let want = desiredFrames[id] else { return }
             // A change while the button is held is the user dragging: an edge (resize) or the
@@ -309,9 +314,45 @@ final class WindowManager {
     }
 
     private func displaysChanged(_ d: [Display]) {
+        log("displays changed: \(d.map { "\($0.id)=\($0.frame)" }.joined(separator: ", "))")
         model.setDisplays(d)
+        invalidateAllFrames()
+    }
+
+    private func systemWoke() {
+        displays.refresh()
+        if model.displays != displays.displays {
+            model.setDisplays(displays.displays)
+        }
+        invalidateAllFrames()
+        for delay in [1.0, 3.0, 5.5] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                guard let self else { return }
+                self.displays.refresh()
+                if self.model.displays != self.displays.displays {
+                    self.model.setDisplays(self.displays.displays)
+                }
+                self.invalidateAllFrames()
+            }
+        }
+    }
+
+    /// Forces all managed windows to be re-placed and verified (after display changes or wake,
+    /// when macOS WindowServer asynchronously relocates windows onto remaining screens).
+    private func invalidateAllFrames() {
         lastApplied.removeAll()
+        effectiveFrames.removeAll()
+        lastCorrection.removeAll()
         applyLayout()
+        scheduleVerify()
+        for delay in [0.5, 1.5] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                guard let self else { return }
+                self.lastApplied.removeAll()
+                self.applyLayout()
+                self.scheduleVerify()
+            }
+        }
     }
 
     /// Display under the window's current center, falling back to the focused display.
@@ -783,12 +824,19 @@ final class WindowManager {
         var desired: [WindowID: CGRect] = [:]
         var newTiles: [(tile: Tile, display: DisplayID)] = []
         var fullscreenDisplays: Set<DisplayID> = []
+        var visibleWorkspaces: Set<Int> = []
         var markers: [(LayoutEngine.SizeMarker, [Tile])] = []
         let caps = observedMax
 
         for display in model.displays {
             for ws in model.workspaces.values where ws.displayID == display.id {
                 let visible = model.isVisible(ws.id)
+                if visible {
+                    visibleWorkspaces.insert(ws.id)
+                    if !lastVisibleWorkspaces.contains(ws.id) {
+                        for w in ws.allWindows { lastApplied[w] = nil }
+                    }
+                }
                 let ts = LayoutEngine.tiles(ws.tree, in: display.frame, tabBarHeight: tabBarHeight, tabBarPosition: config.tabBar.position, maxSize: { caps[$0] })
                 for t in ts {
                     for w in t.windows {
@@ -805,6 +853,7 @@ final class WindowManager {
                 }
             }
         }
+        lastVisibleWorkspaces = visibleWorkspaces
         tiles = newTiles
         desiredFrames = desired
         // Size badges: hosted by the tab bar of the tile at the node's top-right corner when it
@@ -849,8 +898,9 @@ final class WindowManager {
             guard let ax = axWindows[id] else { continue }
             // Constrained windows also need re-placing when their tab moved (tabs added/removed).
             if lastApplied[id] != rect || movedAnchors.contains(id) {
-                place(ax, in: rect)
-                lastApplied[id] = rect
+                if place(ax, in: rect) != nil {
+                    lastApplied[id] = rect
+                }
             }
         }
 
@@ -1016,13 +1066,20 @@ final class WindowManager {
     }
 
     /// Applies `rect`; if the app clamps the size (minimum-size constraints), centers the
-    /// window inside the tile instead of leaving it in the corner. Returns the effective frame.
+    /// window inside the tile instead of leaving it in the corner. Returns the effective frame,
+    /// or `nil` if the window has not settled at its final size yet.
     @discardableResult
-    private func place(_ ax: AXWindow, in rect: CGRect) -> CGRect {
+    private func place(_ ax: AXWindow, in rect: CGRect) -> CGRect? {
         let before = ax.frame
+        if let before,
+           abs(before.minX - rect.minX) <= 2, abs(before.minY - rect.minY) <= 2,
+           abs(before.width - rect.width) <= 2, abs(before.height - rect.height) <= 2 {
+            effectiveFrames[ax.id] = nil
+            return rect
+        }
         let wasAtOrigin = before.map { abs($0.minX - rect.minX) <= 2 && abs($0.minY - rect.minY) <= 2 } ?? false
         ax.setFrame(rect)
-        guard let actual = ax.frame else { return rect }
+        guard let actual = ax.frame else { return nil }
         // When a window moves from another position (e.g. across displays or tiles), AppKit
         // can clamp `kAXSizeAttribute` against the screen edge using the old origin before the
         // position update settles. Let the window settle at `rect.origin` and re-verify before
@@ -1033,7 +1090,7 @@ final class WindowManager {
             effectiveFrames[ax.id] = nil
             lastCorrection[ax.id] = nil
             scheduleVerify()
-            return rect
+            return nil
         }
         noteAcceptedSize(actual.size, requested: rect.size, for: ax.id)
         if abs(actual.width - rect.width) > 2 || abs(actual.height - rect.height) > 2 {

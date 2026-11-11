@@ -16,6 +16,8 @@ enum WindowEvent {
     case elementChanged(AXWindow)
     /// The app quit; sent after `.destroyed` for each of its windows.
     case appTerminated(pid_t)
+    /// The system or displays just woke from sleep; window frames may need re-applying.
+    case systemWoke
 }
 
 /// Tracks running applications and their windows via NSWorkspace + AXObserver,
@@ -43,6 +45,7 @@ final class WindowWatcher {
     private func resumeReconcile(_ why: String) {
         log("reconcile resumes in 5 s: \(why)")
         reconcileSuspendedUntil = Date().addingTimeInterval(5)
+        onEvent?(.systemWoke)
     }
 
     /// Tooltips, hover cards, popups etc. are `AXWindow`s too, but must never be managed.

@@ -53,7 +53,7 @@ final class WindowManager {
     /// again with the same ID (AX hiccup, sleep/wake) returns to its place silently. CG window
     /// numbers are unique for the login session, so entries never expire by time; they go when
     /// used, when the owning app quits, or (safety valve) when the table gets large.
-    private struct Departed { let workspace: Int; let neighbour: WindowID?; let floating: Bool; let at: Date }
+    private struct Departed { let workspace: Int; let neighbour: WindowID?; let at: Date }
     private var departed: [WindowID: Departed] = [:]
     private let departedLimit = 1000
     /// Layout persistence across restarts.
@@ -74,7 +74,11 @@ final class WindowManager {
         self.mouse = mouse
         self.tabBars = tabBars
         if let saved = store.load() {
-            self.model = WorkspaceModel(restoring: saved, displays: displays.displays, firstWorkspaceID: config.firstWorkspace)
+            var restored = WorkspaceModel(restoring: saved, displays: displays.displays, firstWorkspaceID: config.firstWorkspace)
+            for ws in restored.workspaces.values {
+                for w in ws.floating { restored.toggleFloating(w) }
+            }
+            self.model = restored
             self.restoring = model.allWindows
             self.restoredFocus = model.focused
         } else {
@@ -121,7 +125,7 @@ final class WindowManager {
         for id in missing {
             guard let ws = model.workspace(containing: id) else { continue }
             let neighbour = ws.tree.stack(containing: id)?.windows.first { $0 != id }
-            remember(id, Departed(workspace: ws.id, neighbour: neighbour, floating: ws.floating.contains(id), at: Date()))
+            remember(id, Departed(workspace: ws.id, neighbour: neighbour, at: Date()))
             model.remove(id)
         }
         let adopted = axWindows.count
@@ -213,7 +217,7 @@ final class WindowManager {
             // Returning window: back to its old workspace/stack, no focus change, no pointer warp.
             axWindows[w.id] = w
             titles[w.id] = w.title
-            model.add(w.id, toWorkspace: d.workspace, near: d.neighbour, floating: d.floating)
+            model.add(w.id, toWorkspace: d.workspace, near: d.neighbour)
             applyLayout()
             log("↩ \(app.name) '\(w.title)' \(w.id) back to workspace \(d.workspace)")
             return
@@ -225,24 +229,19 @@ final class WindowManager {
         }
         axWindows[w.id] = w
         titles[w.id] = w.title
-        let floating = disposition == .float
         // A `workspace = N` rule sends the window to that workspace. Like i3's `assign`, this
         // doesn't switch to it: if the workspace is hidden the window simply waits there.
         if let target = rules.assignedWorkspace(for: w, bundleID: app.bundleID),
            target != (display(of: w) ?? model.focusedDisplay).flatMap({ model.visibleWorkspace(on: $0)?.id }) {
-            model.add(w.id, toWorkspace: target, floating: floating)
+            model.add(w.id, toWorkspace: target)
             applyLayout()
-            if !floating, model.isVisible(target) { focus(w.id) }
+            if model.isVisible(target) { focus(w.id) }
             log("+ \(app.name) '\(w.title)' \(w.id) → workspace \(target) (rule)")
             return
         }
-        if floating {
-            model.add(w.id, floating: true, on: display(of: w))
-        } else {
-            model.add(w.id, on: display(of: w))
-            applyLayout()
-            focus(w.id)
-        }
+        model.add(w.id, on: display(of: w))
+        applyLayout()
+        focus(w.id)
         log("+ \(app.name) '\(w.title)' \(w.id)")
     }
 
@@ -251,7 +250,7 @@ final class WindowManager {
         guard axWindows[id] != nil else { return }
         if let ws = model.workspace(containing: id) {
             let neighbour = ws.tree.stack(containing: id)?.windows.first { $0 != id }
-            remember(id, Departed(workspace: ws.id, neighbour: neighbour, floating: ws.floating.contains(id), at: Date()))
+            remember(id, Departed(workspace: ws.id, neighbour: neighbour, at: Date()))
         }
         let wasFocused = model.focused == id
         let replacement = model.remove(id)
@@ -599,11 +598,7 @@ final class WindowManager {
             applyLayout()
             focus(w)
         case .float:
-            guard let w = model.focused else { return }
-            model.toggleFloating(w)
-            lastApplied[w] = nil
-            applyLayout()
-            focus(w)
+            log("ignored cmd float (floating is disabled)")
         case .toggleOrientation:
             guard let w = model.focused, let ws = model.workspace(containing: w) else { return }
             model.update(ws.id) { $0.tree.toggleParentOrientation(w) }
@@ -801,13 +796,6 @@ final class WindowManager {
             }
         }
 
-        menu.addItem(.action("Float Window") { [weak self] in
-            guard let self else { return }
-            self.model.toggleFloating(w)
-            self.lastApplied[w] = nil
-            self.applyLayout()
-            self.focus(w, warp: false)
-        })
         menu.addItem(.separator())
         menu.addItem(.action("Close") { [weak self] in self?.closeWindow(w) })
         return menu

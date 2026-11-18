@@ -34,7 +34,8 @@ final class LayoutStore {
             log("ignoring layout file of version \(s.version)")
             return nil
         }
-        guard s.bootTime == Self.bootTime else {
+        // `kern.boottime` can drift by a few seconds after NTP adjustments across sleep/wake.
+        guard abs(s.bootTime - Self.bootTime) <= 60 else {
             log("ignoring layout saved before the last reboot")
             return nil
         }

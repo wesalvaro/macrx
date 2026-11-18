@@ -258,7 +258,7 @@ public struct WorkspaceModel {
         let ws = workspaces[id]!
         visible[ws.displayID] = id
         focusedDisplay = ws.displayID
-        focused = ws.focused.flatMap { ws.contains($0) ? $0 : nil } ?? ws.tree.allStacks.first?.topWindow
+        focused = ws.focused.flatMap { ws.contains($0) ? $0 : nil } ?? ws.tree.allStacks.first?.topWindow ?? ws.floating.first
         pruneEmptyWorkspaces()
         return focused
     }
@@ -304,10 +304,10 @@ public struct WorkspaceModel {
         var replacement: WindowID?
         if ws.floating.contains(w) {
             workspaces[ws.id]!.floating.remove(w)
-            replacement = workspaces[ws.id]!.tree.allStacks.first?.topWindow
+            replacement = workspaces[ws.id]!.tree.allStacks.first?.topWindow ?? workspaces[ws.id]!.floating.first
         } else {
             replacement = workspaces[ws.id]!.tree.remove(w)
-            if replacement == nil { replacement = workspaces[ws.id]!.tree.allStacks.first?.topWindow }
+            if replacement == nil { replacement = workspaces[ws.id]!.tree.allStacks.first?.topWindow ?? workspaces[ws.id]!.floating.first }
         }
         if workspaces[ws.id]!.fullscreen == w { workspaces[ws.id]!.fullscreen = nil }
         if workspaces[ws.id]!.focused == w { workspaces[ws.id]!.focused = replacement }

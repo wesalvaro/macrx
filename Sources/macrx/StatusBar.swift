@@ -9,8 +9,10 @@ final class StatusBar {
         let name: String
         let visibleWorkspace: Int
         let isFocused: Bool
-        /// (workspace id, window count), sorted by id.
-        let workspaces: [(id: Int, windows: Int)]
+        /// Number of floating windows on this display's visible workspace.
+        let visibleFloatingCount: Int
+        /// (workspace id, window count, floating count), sorted by id.
+        let workspaces: [(id: Int, windows: Int, floating: Int)]
     }
 
     var onSelectWorkspace: ((Int) -> Void)?
@@ -48,13 +50,20 @@ final class StatusBar {
         guard let button = item?.button else { return }
         let title = NSMutableAttributedString()
         let dim: [NSAttributedString.Key: Any] = [.foregroundColor: NSColor.secondaryLabelColor]
+        let floatAttr: [NSAttributedString.Key: Any] = [.foregroundColor: NSColor.systemOrange]
         for (i, e) in entries.enumerated() {
             if i > 0 { title.append(NSAttributedString(string: " · ", attributes: dim)) }
             title.append(NSAttributedString(string: "\(e.visibleWorkspace)", attributes: e.isFocused ? [:] : dim))
+            if e.visibleFloatingCount > 0 {
+                title.append(NSAttributedString(string: "↗", attributes: floatAttr))
+            }
         }
         if entries.isEmpty { title.append(NSAttributedString(string: "–", attributes: dim)) }
         button.attributedTitle = title
-        button.toolTip = entries.map { "\($0.name): workspace \($0.visibleWorkspace)" }.joined(separator: "\n")
+        button.toolTip = entries.map {
+            let suffix = $0.visibleFloatingCount > 0 ? " (\($0.visibleFloatingCount) floating)" : ""
+            return "\($0.name): workspace \($0.visibleWorkspace)\(suffix)"
+        }.joined(separator: "\n")
     }
 
     private func populate(_ menu: NSMenu) {
@@ -64,8 +73,9 @@ final class StatusBar {
             header.isEnabled = false
             menu.addItem(header)
             for ws in e.workspaces {
-                let label = ws.windows == 1 ? "1 window" : "\(ws.windows) windows"
-                let mi = NSMenuItem(title: "Workspace \(ws.id)   \(label)", action: #selector(MenuTarget.pick(_:)), keyEquivalent: ws.id < 10 ? "\(ws.id)" : "")
+                let countLabel = ws.windows == 1 ? "1 window" : "\(ws.windows) windows"
+                let floatLabel = ws.floating > 0 ? " (\(ws.floating) floating)" : ""
+                let mi = NSMenuItem(title: "Workspace \(ws.id)   \(countLabel)\(floatLabel)", action: #selector(MenuTarget.pick(_:)), keyEquivalent: ws.id < 10 ? "\(ws.id)" : "")
                 mi.keyEquivalentModifierMask = [.option]
                 mi.indentationLevel = 1
                 mi.state = ws.id == e.visibleWorkspace ? .on : .off

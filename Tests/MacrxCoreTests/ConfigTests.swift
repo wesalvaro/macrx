@@ -18,9 +18,11 @@ import Foundation
         #expect(cfg.bindings[KeyCombo(string: "alt-shift-0")!] == .moveToWorkspace(0))
         #expect(cfg.bindings[KeyCombo(string: "alt-u")!] == .stack(-1))
         #expect(cfg.bindings[KeyCombo(string: "alt-o")!] == .stack(1))
-        #expect(cfg.bindings[KeyCombo(string: "alt-shift-space")!] == nil)
-        #expect(cfg.rules.count == 1)
-        #expect(cfg.rules[0].clickToFocus)
+        #expect(cfg.bindings[KeyCombo(string: "alt-shift-space")!] == .float)
+        #expect(cfg.rules.count == 2)
+        #expect(cfg.rules[1].clickToFocus)
+        #expect(cfg.rules[0].matches(appID: "com.apple.finder", title: "Copy 3 items"))
+        #expect(!(cfg.rules[0].matches(appID: "com.apple.finder", title: "Documents")))
     }
 
     @Test func FirstWorkspaceOption() throws {

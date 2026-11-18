@@ -11,12 +11,17 @@ final class MouseController {
     var onPointerMoved: ((CGPoint) -> Void)?
     /// Called when the primary button is released anywhere (end of a drag).
     var onMouseUp: (() -> Void)?
+    /// Called (throttled) while dragging with the primary button held.
+    var onMouseDragged: (() -> Void)?
 
     private var monitor: Any?
     private var upMonitor: Any?
+    private var dragMonitor: Any?
     private var suppressUntil = Date.distantPast
     private var lastHandled = Date.distantPast
+    private var lastDrag = Date.distantPast
     private let throttle: TimeInterval = 0.08
+    private let dragThrottle: TimeInterval = 0.03
     private let suppression: TimeInterval = 0.3
 
     func startFollowing() {
@@ -27,9 +32,21 @@ final class MouseController {
     }
 
     func startDragTracking() {
-        guard upMonitor == nil else { return }
-        upMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseUp]) { [weak self] _ in
-            MainActor.assumeIsolated { self?.onMouseUp?() }
+        if upMonitor == nil {
+            upMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseUp]) { [weak self] _ in
+                MainActor.assumeIsolated { self?.onMouseUp?() }
+            }
+        }
+        if dragMonitor == nil {
+            dragMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDragged]) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    let now = Date()
+                    guard now.timeIntervalSince(self.lastDrag) >= self.dragThrottle else { return }
+                    self.lastDrag = now
+                    self.onMouseDragged?()
+                }
+            }
         }
     }
 

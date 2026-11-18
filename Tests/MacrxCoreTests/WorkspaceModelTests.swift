@@ -256,4 +256,20 @@ import Foundation
         #expect(m.visibleWorkspace(on: DisplayID(5))?.id == 1)
         #expect(m.visibleWorkspace(on: DisplayID(3))?.id == 2 || m.visibleWorkspace(on: DisplayID(3))?.id == 0)
     }
+
+    @Test func FocusingWorkspaceWithOnlyFloatingWindowFocusesIt() {
+        var m = WorkspaceModel(displays: [d1])
+        m.add(w(1)); m.setFocused(w(1))
+        m.add(w(2), floating: true)
+        // Removing the last tiled window falls back to the remaining floating window.
+        let replacement = m.remove(w(1))
+        #expect(replacement == w(2))
+        #expect(m.focused == w(2))
+        // Switching away and back still focuses the floating window.
+        m.focusWorkspace(1)
+        #expect(m.focused == nil)
+        let back = m.focusWorkspace(0)
+        #expect(back == w(2))
+        #expect(m.focused == w(2))
+    }
 }

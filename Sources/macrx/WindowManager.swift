@@ -14,6 +14,7 @@ final class WindowManager {
     private let statusBar = StatusBar()
     private let sizeBadges = SizeBadgeController()
     private let scrims = ScrimController()
+    private let floatingIndicators = FloatingIndicatorController()
 
     private var axWindows: [WindowID: AXWindow] = [:]
     private var titles: [WindowID: String] = [:]
@@ -53,7 +54,7 @@ final class WindowManager {
     /// again with the same ID (AX hiccup, sleep/wake) returns to its place silently. CG window
     /// numbers are unique for the login session, so entries never expire by time; they go when
     /// used, when the owning app quits, or (safety valve) when the table gets large.
-    private struct Departed { let workspace: Int; let neighbour: WindowID?; let at: Date }
+    private struct Departed { let workspace: Int; let neighbour: WindowID?; let floating: Bool; let at: Date }
     private var departed: [WindowID: Departed] = [:]
     private let departedLimit = 1000
     /// Layout persistence across restarts.
@@ -74,11 +75,7 @@ final class WindowManager {
         self.mouse = mouse
         self.tabBars = tabBars
         if let saved = store.load() {
-            var restored = WorkspaceModel(restoring: saved, displays: displays.displays, firstWorkspaceID: config.firstWorkspace)
-            for ws in restored.workspaces.values {
-                for w in ws.floating { restored.toggleFloating(w) }
-            }
-            self.model = restored
+            self.model = WorkspaceModel(restoring: saved, displays: displays.displays, firstWorkspaceID: config.firstWorkspace)
             self.restoring = model.allWindows
             self.restoredFocus = model.focused
         } else {
@@ -89,6 +86,10 @@ final class WindowManager {
         watcher.onEvent = { [weak self] e in self?.handle(e) }
         mouse.onPointerMoved = { [weak self] p in self?.pointerMoved(to: p) }
         mouse.onMouseUp = { [weak self] in self?.finishUserDrag() }
+        mouse.onMouseDragged = { [weak self] in
+            guard let self, self.hasVisibleFloatingWindows else { return }
+            self.syncFloatingIndicators()
+        }
         mouse.startDragTracking()
         tabBars.onTabClicked = { [weak self] w in self?.focus(w, warp: false) }
         tabBars.onTabClosed = { [weak self] w in self?.closeWindow(w) }
@@ -97,6 +98,13 @@ final class WindowManager {
         tabBars.onDragEnded = { [weak self] w, p in self?.tabDragEnded(w, at: p) }
         tabBars.onResetSize = { [weak self] id in self?.resetSize(nodeID: id) }
         sizeBadges.onResetSize = { [weak self] id in self?.resetSize(nodeID: id) }
+        floatingIndicators.onUnfloat = { [weak self] w in
+            guard let self, self.model.workspace(containing: w)?.floating.contains(w) == true else { return }
+            self.model.toggleFloating(w)
+            self.lastApplied[w] = nil
+            self.applyLayout()
+            self.focus(w, warp: false)
+        }
         statusBar.onSelectWorkspace = { [weak self] n in self?.perform(.workspace(n)) }
         statusBar.onReload = { [weak self] in self?.onReload?() }
         statusBar.onQuit = { [weak self] in self?.onQuit?() }
@@ -125,7 +133,7 @@ final class WindowManager {
         for id in missing {
             guard let ws = model.workspace(containing: id) else { continue }
             let neighbour = ws.tree.stack(containing: id)?.windows.first { $0 != id }
-            remember(id, Departed(workspace: ws.id, neighbour: neighbour, at: Date()))
+            remember(id, Departed(workspace: ws.id, neighbour: neighbour, floating: ws.floating.contains(id), at: Date()))
             model.remove(id)
         }
         let adopted = axWindows.count
@@ -173,7 +181,12 @@ final class WindowManager {
         case .systemWoke:
             systemWoke()
         case .frameChanged(let id):
-            guard let ax = axWindows[id], let want = desiredFrames[id] else { return }
+            guard let ax = axWindows[id] else { return }
+            if let ws = model.workspace(containing: id), ws.floating.contains(id) {
+                if model.isVisible(ws.id) { syncFloatingIndicators() }
+                return
+            }
+            guard let want = desiredFrames[id] else { return }
             // A change while the button is held is the user dragging: an edge (resize) or the
             // title bar (move). Let it happen and fold it into the layout on mouse-up. Anything
             // else gets snapped back.
@@ -217,7 +230,7 @@ final class WindowManager {
             // Returning window: back to its old workspace/stack, no focus change, no pointer warp.
             axWindows[w.id] = w
             titles[w.id] = w.title
-            model.add(w.id, toWorkspace: d.workspace, near: d.neighbour)
+            model.add(w.id, toWorkspace: d.workspace, near: d.neighbour, floating: d.floating)
             applyLayout()
             log("↩ \(app.name) '\(w.title)' \(w.id) back to workspace \(d.workspace)")
             return
@@ -229,19 +242,25 @@ final class WindowManager {
         }
         axWindows[w.id] = w
         titles[w.id] = w.title
+        let floating = disposition == .float
         // A `workspace = N` rule sends the window to that workspace. Like i3's `assign`, this
         // doesn't switch to it: if the workspace is hidden the window simply waits there.
         if let target = rules.assignedWorkspace(for: w, bundleID: app.bundleID),
            target != (display(of: w) ?? model.focusedDisplay).flatMap({ model.visibleWorkspace(on: $0)?.id }) {
-            model.add(w.id, toWorkspace: target)
+            model.add(w.id, toWorkspace: target, floating: floating)
             applyLayout()
-            if model.isVisible(target) { focus(w.id) }
+            if !floating, model.isVisible(target) { focus(w.id) }
             log("+ \(app.name) '\(w.title)' \(w.id) → workspace \(target) (rule)")
             return
         }
-        model.add(w.id, on: display(of: w))
-        applyLayout()
-        focus(w.id)
+        if floating {
+            model.add(w.id, floating: true, on: display(of: w))
+            applyLayout()
+        } else {
+            model.add(w.id, on: display(of: w))
+            applyLayout()
+            focus(w.id)
+        }
         log("+ \(app.name) '\(w.title)' \(w.id)")
     }
 
@@ -250,7 +269,7 @@ final class WindowManager {
         guard axWindows[id] != nil else { return }
         if let ws = model.workspace(containing: id) {
             let neighbour = ws.tree.stack(containing: id)?.windows.first { $0 != id }
-            remember(id, Departed(workspace: ws.id, neighbour: neighbour, at: Date()))
+            remember(id, Departed(workspace: ws.id, neighbour: neighbour, floating: ws.floating.contains(id), at: Date()))
         }
         let wasFocused = model.focused == id
         let replacement = model.remove(id)
@@ -380,6 +399,24 @@ final class WindowManager {
         model.setFocused(id)
         model.update(ws.id) { $0.tree.makeTop(id) }
 
+        // If `id` is a tiled window on a workspace that also has visible floating windows,
+        // avoid calling `kAXRaiseAction` unless `id` is behind a background window — otherwise
+        // raising `id` stomps over the floating window(s) and triggers a restack flicker.
+        let hasFloatingAbove = !ws.floating.contains(id) && ws.floating.contains { axWindows[$0] != nil }
+        let needsRaise: Bool
+        if !hasFloatingAbove {
+            needsRaise = true
+        } else {
+            let order = Self.normalLayerWindowOrder()
+            let fg = foregroundWindows(on: ws.displayID)
+            let bgSet = backgroundWindows(on: ws.displayID, foreground: Set(fg))
+            if let topBgIndex = order.firstIndex(where: { bgSet.contains($0) }) {
+                needsRaise = order.firstIndex(of: id).map { $0 > topBgIndex } ?? true
+            } else {
+                needsRaise = false
+            }
+        }
+
         // Window-server level focus (`kCPSUserGenerated` focuses only `id`, without raising the
         // app's other windows that may live on other workspaces or behind in a stack). Fall back
         // to full app activation only when SkyLight isn't available.
@@ -388,16 +425,23 @@ final class WindowManager {
             log("skylight focus unavailable/failed for \(id)")
             watcher.app(for: id.pid)?.activate()
         }
-        ax.raise()
+        if needsRaise {
+            ax.raise()
+        } else if !sl {
+            ax.makeKey()
+        }
         applyLayout()
 
         // Re-assert z-order and scrim placement shortly after activation settles.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
             guard let self, self.model.focused == id else { return }
-            ax.raise()
+            if !hasFloatingAbove {
+                ax.raise()
+            }
             self.restackWindows()
             self.tabBars.bringToFront()
             self.sizeBadges.bringToFront()
+            self.floatingIndicators.bringToFront()
         }
         // Some apps (GLFW-based like kitty) ignore every programmatic key-window switch within
         // the app. For apps opted in via a `click-to-focus` rule, click the title bar if needed.
@@ -598,7 +642,11 @@ final class WindowManager {
             applyLayout()
             focus(w)
         case .float:
-            log("ignored cmd float (floating is disabled)")
+            guard let w = model.focused else { return }
+            model.toggleFloating(w)
+            lastApplied[w] = nil
+            applyLayout()
+            focus(w, warp: false)
         case .toggleOrientation:
             guard let w = model.focused, let ws = model.workspace(containing: w) else { return }
             model.update(ws.id) { $0.tree.toggleParentOrientation(w) }
@@ -614,7 +662,12 @@ final class WindowManager {
             if let t = tiles.first(where: { $0.display == model.focusedDisplay }) { focus(t.tile.top) }
             return
         }
-        let cands = tiles.filter { $0.tile.top != focused }.map { Navigation.Candidate(id: $0.tile.top, frame: $0.tile.frame) }
+        var cands = tiles.filter { $0.tile.top != focused }.map { Navigation.Candidate(id: $0.tile.top, frame: $0.tile.frame) }
+        for ws in model.visibleWorkspaces {
+            for w in ws.floating where w != focused {
+                if let f = axWindows[w]?.frame { cands.append(Navigation.Candidate(id: w, frame: f)) }
+            }
+        }
         if let n = Navigation.neighbor(from: origin, dir: dir, among: cands) {
             focus(n.id)
         } else if let ws = model.workspace(containing: focused), let d = model.display(in: dir, from: ws.displayID) {
@@ -796,6 +849,13 @@ final class WindowManager {
             }
         }
 
+        menu.addItem(.action("Float Window") { [weak self] in
+            guard let self else { return }
+            self.model.toggleFloating(w)
+            self.lastApplied[w] = nil
+            self.applyLayout()
+            self.focus(w, warp: false)
+        })
         menu.addItem(.separator())
         menu.addItem(.action("Close") { [weak self] in self?.closeWindow(w) })
         return menu
@@ -907,16 +967,18 @@ final class WindowManager {
     private func updateStatusBar() {
         guard statusBar.isShown else { return }
         let entries = model.displays.map { d -> StatusBar.DisplayEntry in
-            let visible = model.visibleWorkspace(on: d.id)?.id
+            let visibleWS = model.visibleWorkspace(on: d.id)
+            let visible = visibleWS?.id
             // Empty workspaces are noise in the menu; keep only populated ones (and the current one).
             let wss = model.workspaces.values
                 .filter { $0.displayID == d.id && (!$0.isEmpty || $0.id == visible) }
                 .sorted { $0.id < $1.id }
             return StatusBar.DisplayEntry(
                 name: displays.names[d.id] ?? "Display",
-                visibleWorkspace: model.visibleWorkspace(on: d.id)?.id ?? 0,
+                visibleWorkspace: visible ?? 0,
                 isFocused: model.focusedDisplay == d.id,
-                workspaces: wss.map { ($0.id, $0.allWindows.count) })
+                visibleFloatingCount: visibleWS?.floating.count ?? 0,
+                workspaces: wss.map { ($0.id, $0.allWindows.count, $0.floating.count) })
         }
         statusBar.update(entries)
     }
@@ -970,15 +1032,25 @@ final class WindowManager {
         let now = Date()
         let order = Self.normalLayerWindowOrder()
         var didRaiseUnfocused = false
-        var needsFocusedReassert = false
+        var needsFocusedRaise = false
         for display in model.displays {
+            let ws = model.visibleWorkspace(on: display.id)
+            let floatingSet = ws?.floating ?? []
             let fg = foregroundWindows(on: display.id)
             let bgSet = backgroundWindows(on: display.id, foreground: Set(fg))
+            // 1. Raise foreground tiled windows above background windows first, so floating
+            //    windows raised in step 2 always end up above tiled windows.
             if let topBgIndex = order.firstIndex(where: { bgSet.contains($0) }) {
-                for w in fg {
+                for w in fg where !floatingSet.contains(w) {
                     guard let fgIndex = order.firstIndex(of: w), fgIndex > topBgIndex else { continue }
                     if w == model.focused {
-                        needsFocusedReassert = true
+                        if floatingSet.contains(where: { axWindows[$0] != nil }) {
+                            _ = SkyLight.focus(pid: w.pid, windowID: w.cgID)
+                            axWindows[w]?.raise()
+                            didRaiseUnfocused = true
+                        } else {
+                            needsFocusedRaise = true
+                        }
                     } else {
                         if let t = restackedAt[w], now.timeIntervalSince(t) < 0.15 { continue }
                         restackedAt[w] = now
@@ -988,27 +1060,44 @@ final class WindowManager {
                     }
                 }
             }
-            // Keep visible floating windows above tiled windows on the same display.
-            if let ws = model.visibleWorkspace(on: display.id), ws.fullscreen == nil, !ws.floating.isEmpty {
-                let tiledSet = Set(ws.tree.allStacks.compactMap(\.topWindow))
-                if let topTiledIndex = order.firstIndex(where: { tiledSet.contains($0) }) {
-                    for w in ws.floating where w != model.focused && axWindows[w] != nil {
-                        if let flIndex = order.firstIndex(of: w), flIndex > topTiledIndex {
-                            if let t = restackedAt[w], now.timeIntervalSince(t) < 0.15 { continue }
-                            restackedAt[w] = now
-                            _ = SkyLight.focus(pid: w.pid, windowID: w.cgID)
-                            axWindows[w]?.orderFront()
-                            didRaiseUnfocused = true
+            // 2. Keep visible floating windows above both tiled and background windows on this display.
+            if let ws, !ws.floating.isEmpty {
+                let belowFloating: Set<WindowID>
+                if let fs = ws.fullscreen {
+                    belowFloating = bgSet.union([fs])
+                } else {
+                    belowFloating = bgSet.union(ws.tree.allStacks.compactMap(\.topWindow))
+                }
+                let currentOrder = didRaiseUnfocused ? Self.normalLayerWindowOrder() : order
+                if let topBelowIndex = currentOrder.firstIndex(where: { belowFloating.contains($0) }) {
+                    for w in ws.floating where axWindows[w] != nil {
+                        if let flIndex = currentOrder.firstIndex(of: w), flIndex > topBelowIndex {
+                            if w == model.focused {
+                                needsFocusedRaise = true
+                            } else {
+                                if let t = restackedAt[w], now.timeIntervalSince(t) < 0.15 { continue }
+                                restackedAt[w] = now
+                                _ = SkyLight.focus(pid: w.pid, windowID: w.cgID)
+                                axWindows[w]?.orderFront()
+                                didRaiseUnfocused = true
+                            }
                         }
                     }
                 }
             }
         }
-        if (didRaiseUnfocused || needsFocusedReassert), let f = model.focused, let ax = axWindows[f] {
+        if (didRaiseUnfocused || needsFocusedRaise), let f = model.focused, let ax = axWindows[f] {
             lastFocusAt = Date()
             let sl = SkyLight.focus(pid: f.pid, windowID: f.cgID)
             if !sl { watcher.app(for: f.pid)?.activate() }
-            ax.raise()
+            if needsFocusedRaise {
+                ax.raise()
+            } else if !sl {
+                // `SkyLight.focus` already delivers key focus without reordering windows;
+                // avoid `kAXRaiseAction` / `kAXMainAttribute` (which AppKit/Chrome implement
+                // via `makeKeyAndOrderFront:`), so floating windows stay on top of `f`.
+                ax.makeKey()
+            }
             if allowRetry {
                 // Chrome PWA shims (`app_mode_loader`) process window raises asynchronously
                 // (~100-180ms); re-verify once they settle so neither a foreground window nor
@@ -1019,7 +1108,7 @@ final class WindowManager {
             }
         }
 
-        let finalOrder = (didRaiseUnfocused || needsFocusedReassert) ? Self.normalLayerWindowOrder() : order
+        let finalOrder = (didRaiseUnfocused || needsFocusedRaise) ? Self.normalLayerWindowOrder() : order
         let scrimEntries = model.displays.map { display -> ScrimController.Entry in
             let fg = foregroundWindows(on: display.id)
             let bgSet = backgroundWindows(on: display.id, foreground: Set(fg))
@@ -1041,6 +1130,30 @@ final class WindowManager {
             return ScrimController.Entry(id: display.id, frame: frame, ordering: ordering)
         }
         scrims.sync(displays: scrimEntries)
+        syncFloatingIndicators()
+    }
+
+    private var hasVisibleFloatingWindows: Bool {
+        model.visibleWorkspaces.contains { !$0.floating.isEmpty }
+    }
+
+    private func syncFloatingIndicators() {
+        let hint = config.bindings.first { $0.value == .float }?.key.description
+        var entries: [FloatingIndicatorController.Entry] = []
+        for ws in model.visibleWorkspaces {
+            for w in ws.floating {
+                guard let ax = axWindows[w], let frame = ax.frame else { continue }
+                let screenFrame = displays.display(containing: frame.center)?.frame
+                    ?? model.display(ws.displayID)?.frame
+                entries.append(FloatingIndicatorController.Entry(
+                    id: w,
+                    frame: frame,
+                    screenFrame: screenFrame,
+                    isFocused: model.focused == w,
+                    shortcutHint: hint))
+            }
+        }
+        floatingIndicators.sync(entries)
     }
 
     private func syncTabBars(excluding fullscreenDisplays: Set<DisplayID> = [], badges: [ObjectIdentifier: [SizeBadge]] = [:]) {
@@ -1177,6 +1290,13 @@ final class WindowManager {
     /// Mouse-up after the user dragged tiled windows: edge drags become fixed sizes, title-bar
     /// drags drop the window into the tile under the pointer (or snap it back).
     private func finishUserDrag() {
+        if hasVisibleFloatingWindows {
+            syncFloatingIndicators()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) { [weak self] in
+                guard let self, self.hasVisibleFloatingWindows, !MouseController.isMenuOpen() else { return }
+                self.restackWindows()
+            }
+        }
         guard !userResizing.isEmpty || !userMoving.isEmpty else { return }
         let resizing = userResizing, moving = userMoving
         userResizing.removeAll()
@@ -1226,6 +1346,7 @@ final class WindowManager {
     func shutdown() {
         store.saveNow(model.snapshot(bootTime: LayoutStore.bootTime))
         sizeBadges.hideAll()
+        floatingIndicators.hideAll()
         scrims.hideAll()
     }
 

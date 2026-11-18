@@ -306,10 +306,16 @@ public struct Config: Equatable, Sendable {
 
     # Misc
     alt-f = "fullscreen"
+    alt-shift-space = "float"
     alt-e = "toggle-orientation"
     alt-shift-r = "reload"
     alt-shift-q = "quit"
 
+
+    [[rule]]
+    app-id = "com.apple.finder"
+    title-regex = "^(Copy|Move|Trash)"
+    float = true
 
     # kitty (GLFW) ignores every programmatic key-window switch; a title-bar click is the only way.
     [[rule]]

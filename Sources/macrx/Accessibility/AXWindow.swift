@@ -121,6 +121,11 @@ struct AXWindow: Hashable {
         AXUIElementPerformAction(element, kAXRaiseAction as CFString)
         // Main + focused: needed for the app to switch its key window to this one
         // (raising alone only reorders).
+        makeKey()
+    }
+
+    /// Make this the app's key/main window without raising it above higher windows (such as floating windows).
+    func makeKey() {
         _ = element.setAttribute(kAXMainAttribute, kCFBooleanTrue)
         _ = element.setAttribute(kAXFocusedAttribute, kCFBooleanTrue)
     }
